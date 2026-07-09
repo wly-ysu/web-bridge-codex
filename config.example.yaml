@@ -1,0 +1,94 @@
+adapter: web
+
+git:
+  max_diff_chars: 14000
+
+context:
+  enabled: true
+  max_file_chars: 8000
+  max_related_files: 8
+  max_logs: 3
+  max_log_chars: 12000
+
+bridge:
+  personal_mode: true
+  allow_workspace_context: true
+
+project:
+  allowed_extensions:
+    - ".cpp"
+    - ".hpp"
+    - ".cc"
+    - ".cxx"
+    - ".h"
+    - ".cu"
+    - ".cuh"
+    - ".py"
+    - ".yaml"
+    - ".yml"
+    - ".json"
+    - ".md"
+    - ".txt"
+    - "CMakeLists.txt"
+  ignore_paths:
+    - ".git"
+    - "build"
+    - "log"
+    - "data"
+    - "weights"
+    - "__pycache__"
+  sensitive_patterns:
+    - "*.bag"
+    - "*.pcd"
+
+web_adapter:
+  enabled: true
+  base_url: "https://chatgpt.com"
+  profile_dir: ".gptpro-browser"
+  user_data_dir: ""
+  executable_path: ""
+  channel: "chrome"
+  headless: false
+  timeout_ms: 120000
+  model_strategy:
+    mode: "best_available"
+    preferred_models:
+      - "GPT-5.5 Pro"
+      - "Pro extension"
+      - "GPT-5.5"
+    fallback_to_current_model: true
+    fail_if_preferred_unavailable: false
+  input_selectors:
+    - "#prompt-textarea"
+    - "textarea[data-testid='composer-tray-text-input']"
+    - "textarea[placeholder*='Message']"
+    - "textarea[placeholder*='Send a message']"
+    - "div[contenteditable='true']"
+  send_selectors:
+    - "button[data-testid='send-button']"
+    - "button[data-testid='send-button-annotation']"
+    - "button:has-text('Send')"
+    - "button[aria-label='Send prompt']"
+    - "button[aria-label='Send message']"
+  response_selectors:
+    - "[data-message-author-role='assistant']"
+    - "article[data-message-author-role='assistant']"
+    - "article[data-testid='conversation-turn-2']"
+    - "div[data-testid='markdown']"
+    - "article"
+
+api_adapter:
+  model: gpt-5.5-pro
+  temperature: 0.2
+  max_tokens: 4096
+  request_timeout_seconds: 60
+  response_wait_seconds: 60
+
+runtime:
+  tool_timeout_seconds: 180
+  web_query_timeout_seconds: 150
+  browser_launch_timeout_seconds: 45
+  auto_kill_stale_ai_chrome: false
+  auto_remove_stale_lock: false
+
+memory_file: ".bridge_memory.json"

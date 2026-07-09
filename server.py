@@ -1,0 +1,576 @@
+"""MCP server entry for Codex-ChatGPTWeb bridge."""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import logging
+import os
+from pathlib import Path
+from typing import Any
+
+BASE_DIR = Path(__file__).resolve().parent
+DEFAULT_CONFIG_PATH = BASE_DIR / "config.yaml"
+DEFAULT_LOG_PATH = BASE_DIR / "bridge_mcp.log"
+
+logging.basicConfig(
+    filename=str(DEFAULT_LOG_PATH),
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+)
+
+
+def _flush_log_handlers() -> None:
+    for handler in logging.getLogger().handlers:
+        try:
+            handler.flush()
+        except Exception:
+            pass
+
+
+def _log_stage(stage: str, extra: dict[str, object] | None = None) -> None:
+    if extra:
+        details = ", ".join([f"{k}={v}" for k, v in sorted(extra.items())])
+        logging.info("[STAGE] %s %s", stage, details)
+    else:
+        logging.info("[STAGE] %s", stage)
+    _flush_log_handlers()
+
+
+def _log_adapter_init(**fields: object) -> None:
+    if fields:
+        details = ", ".join([f"{k}={v}" for k, v in sorted(fields.items())])
+        logging.info("[ADAPTER_INIT] %s", details)
+    else:
+        logging.info("[ADAPTER_INIT]")
+    _flush_log_handlers()
+
+
+from adapters.gpt_api import GPTAPIAdapter
+from adapters.gptpro_web import GPTProWebAdapter
+from core.context_manager import ContextManager
+from core.session_manager import SessionManager
+from tools.architect import ArchitectAgent
+from tools.reviewer import ReviewerAgent
+from tools.debugger import DebuggerAgent
+
+try:
+    import yaml
+    from mcp.server.fastmcp import FastMCP
+except Exception as exc:
+    raise RuntimeError("Missing dependencies: run pip install -r requirements.txt") from exc
+
+
+DEFAULT_CONFIG = {
+    "adapter": "web",
+    "git": {"max_diff_chars": 12000},
+    "bridge": {"personal_mode": True, "allow_workspace_context": True},
+    "context": {
+        "enabled": True,
+        "max_file_chars": 6000,
+        "max_related_files": 6,
+        "max_logs": 3,
+        "max_log_chars": 8000,
+    },
+    "project": {
+        "allowed_extensions": [".cpp", ".hpp", ".cc", ".c", ".h", ".cu", ".py", ".yaml", ".yml", ".md", ".txt", "CMakeLists.txt"],
+        "ignore_paths": [".git", "build", "log", "data", "weights", "__pycache__"],
+        "sensitive_patterns": ["*.bag", "*.pcd"],
+    },
+    "web_adapter": {
+        "base_url": "https://chatgpt.com",
+        "profile_dir": ".gptpro-browser",
+        "user_data_dir": "",
+        "channel": "chrome",
+        "headless": False,
+        "timeout_ms": 120000,
+        "model_strategy": {
+            "mode": "best_available",
+            "preferred_models": [
+                "GPT-5.5 Pro",
+                "Pro 扩展",
+                "GPT-5.5",
+            ],
+            "fallback_to_current_model": True,
+            "fail_if_preferred_unavailable": False,
+        },
+        "input_selectors": [
+            "#prompt-textarea",
+            "textarea[data-testid='composer-tray-text-input']",
+            "textarea[placeholder*='Message']",
+            "textarea[placeholder*='Send a message']",
+            "div[contenteditable='true']",
+        ],
+        "send_selectors": [
+            "button[data-testid='send-button']",
+            "button[data-testid='send-button-annotation']",
+            "button:has-text('Send')",
+            "button[aria-label='Send prompt']",
+            "button[aria-label='Send message']",
+        ],
+        "response_selectors": [
+            "[data-message-author-role='assistant']",
+            "article[data-message-author-role='assistant']",
+            "article[data-testid='conversation-turn-2']",
+            "article",
+            "div[data-testid='markdown']",
+        ],
+    },
+    "api_adapter": {
+        "model": "gpt-5.5-pro",
+        "temperature": 0.2,
+        "max_tokens": 4096,
+        "response_wait_seconds": 60,
+    },
+    "memory_file": ".bridge_memory.json",
+    "runtime": {
+        "tool_timeout_seconds": 180,
+        "web_query_timeout_seconds": 150,
+        "browser_launch_timeout_seconds": 45,
+        "auto_kill_stale_ai_chrome": False,
+    },
+}
+
+
+def setup_logging(verbose: bool = False) -> logging.Logger:
+    level = logging.DEBUG if verbose else logging.INFO
+    logger = logging.getLogger("codex-bridge")
+    logger.setLevel(level)
+    return logger
+
+
+def _resolve_config_path(path: str | Path) -> Path:
+    config_path = Path(path)
+    if not config_path.is_absolute():
+        config_path = BASE_DIR / config_path
+    return config_path
+
+
+def load_config(path: str | Path) -> dict[str, Any]:
+    config_path = _resolve_config_path(path)
+    if not config_path.exists():
+        return DEFAULT_CONFIG.copy()
+
+    content = config_path.read_text(encoding="utf-8")
+    loaded = yaml.safe_load(content)
+    if not isinstance(loaded, dict):
+        return DEFAULT_CONFIG.copy()
+
+    config = DEFAULT_CONFIG.copy()
+    for key, value in loaded.items():
+        if isinstance(value, dict) and key in config and isinstance(config[key], dict):
+            config[key].update(value)
+        else:
+            config[key] = value
+    return config
+
+
+def _tool_timeout_error(tool_name: str, stage: str, timeout_seconds: int) -> str:
+    return (
+        "[BRIDGE_TIMEOUT]\n"
+        f"tool={tool_name}\n"
+        f"stage={stage}\n"
+        f"timeout_seconds={timeout_seconds}\n"
+        "Please check bridge_mcp.log"
+    )
+
+
+def build_adapter(config: dict[str, Any], workspace_root: Path, logger: logging.Logger):
+    env_adapter = os.getenv("GPTPRO_ADAPTER")
+    configured = env_adapter if env_adapter else config.get("adapter", "web")
+    _log_adapter_init(
+        cwd=Path.cwd(),
+        base_dir=BASE_DIR,
+        adapter_env=env_adapter if env_adapter else "<unset>",
+        configured_adapter=configured,
+    )
+    mode = str(configured).lower()
+    if mode == "api":
+        logger.info("Using GPT API adapter")
+        _log_adapter_init(adapter_type="GPTAPIAdapter")
+        return GPTAPIAdapter(config, logger)
+    try:
+        from playwright.async_api import async_playwright  # noqa: F401
+
+        del async_playwright
+        logger.info("Trying GPT web adapter first (default)")
+        adapter = GPTProWebAdapter(str(workspace_root), config, logger)
+        _log_adapter_init(adapter_type=type(adapter).__name__)
+        return adapter
+    except Exception as exc:
+        logger.warning("Web adapter init failed, fallback to api adapter: %s", exc)
+        _log_adapter_init(adapter_type="GPTAPIAdapter (fallback)")
+        return GPTAPIAdapter(config, logger)
+
+
+def create_server(config_path: str | Path = DEFAULT_CONFIG_PATH, verbose: bool = False) -> FastMCP:
+    logger = setup_logging(verbose)
+    resolved_config_path = _resolve_config_path(config_path)
+    _log_stage("server.config.resolve.start", {"path": str(resolved_config_path)})
+    config = load_config(resolved_config_path)
+    _log_stage("server.config.loaded", {"path": str(resolved_config_path)})
+
+    web_cfg = config.get("web_adapter", {})
+    model_strategy = web_cfg.get("model_strategy", {})
+    if web_cfg.get("enabled", True):
+        logger.info("[Bridge] Web Tech Lead adapter: enabled")
+        logger.info("[Bridge] Model strategy: %s", model_strategy.get("mode", "best_available"))
+        logger.info("[Bridge] Preferred models: %s", ", ".join(model_strategy.get("preferred_models", [])))
+        logger.info("[Bridge] Fallback to current web model: %s", model_strategy.get("fallback_to_current_model", True))
+
+    workspace_root = Path.cwd().resolve()
+    _log_adapter_init(cwd=Path.cwd(), base_dir=BASE_DIR, config_path=resolved_config_path)
+    adapter = build_adapter(config, workspace_root, logger)
+    adapter_type = type(adapter).__name__
+    web_user_data_dir = "<not_web_adapter>"
+    if isinstance(adapter, GPTProWebAdapter):
+        web_user_data_dir, _ = adapter.get_runtime_profile()
+    _log_adapter_init(
+        adapter_type=adapter_type,
+        web_user_data_dir=web_user_data_dir,
+        web_executable_path=web_cfg.get("executable_path", "<unset>"),
+        web_base_url=web_cfg.get("base_url", "https://chatgpt.com"),
+        model_strategy=model_strategy.get("mode", "best_available"),
+        fallback_to_current_model=model_strategy.get("fallback_to_current_model", True),
+        fail_if_preferred_unavailable=model_strategy.get("fail_if_preferred_unavailable", False),
+    )
+
+    context_manager = ContextManager(workspace_root, config)
+    session_manager = SessionManager(str(workspace_root / config.get("memory_file", ".bridge_memory.json")))
+
+    architect = ArchitectAgent(context_manager=context_manager, adapter=adapter)
+    reviewer = ReviewerAgent(context_manager=context_manager, adapter=adapter)
+    debugger = DebuggerAgent(context_manager=context_manager, adapter=adapter)
+
+    runtime_cfg = config.get("runtime", {})
+    tool_timeout_seconds = int(runtime_cfg.get("tool_timeout_seconds", 180))
+
+    server = FastMCP("Codex-ChatGPTWeb Bridge")
+
+    def _current_stage(fallback: str) -> str:
+        if isinstance(adapter, GPTProWebAdapter):
+            adapter_stage = getattr(adapter, "last_stage_name", getattr(adapter, "last_stage", None))
+            if isinstance(adapter_stage, str) and adapter_stage:
+                return adapter_stage
+        architect_stage = getattr(architect, "last_stage", None)
+        if isinstance(architect_stage, str) and architect_stage:
+            return architect_stage
+        return fallback
+
+    def _format_preflight_result() -> str:
+        if not isinstance(adapter, GPTProWebAdapter):
+            return (
+                "BRIDGE_CHROME_PREFLIGHT_FAILED\n"
+                "reason=unsupported_adapter\n"
+                "adapter_type=GPTAPIAdapter\n"
+                "recommended_action=use web adapter"
+            )
+        preflight = adapter.run_chrome_preflight()
+        formatter = getattr(adapter, "_format_preflight_result_text", None)
+        if callable(formatter):
+            return formatter(preflight)  # type: ignore[misc]
+        return "\n".join(
+            [
+                "BRIDGE_CHROME_PREFLIGHT_OK"
+                if not preflight.get("profile_in_use")
+                else "BRIDGE_CHROME_PREFLIGHT_FAILED",
+                f"executable_path={preflight.get('executable_path')}",
+                f"executable_exists={preflight.get('executable_exists')}",
+                f"user_data_dir={preflight.get('user_data_dir')}",
+                f"user_data_dir_exists={preflight.get('user_data_dir_exists')}",
+                f"user_data_dir_writable={preflight.get('user_data_dir_writable')}",
+                f"profile_in_use={preflight.get('profile_in_use')}",
+                f"matching_pids={preflight.get('matching_pids')}",
+                f"lock_files={preflight.get('lock_files')}",
+                f"launch_args={preflight.get('launch_args')}",
+                f"recommended_action={'ready_to_launch' if not preflight.get('profile_in_use') else 'close AI Bridge Chrome or kill only processes with --user-data-dir=gptpro_profile'}",
+            ]
+        )
+
+    async def _run_smoke_test(
+        target_url: str | None = None,
+        user_data_dir_override: str | None = None,
+    ) -> str:
+        if not isinstance(adapter, GPTProWebAdapter):
+            return (
+                "BRIDGE_CHROME_SMOKE_TEST_FAILED\n"
+                "reason=unsupported_adapter\n"
+                "adapter_type=GPTAPIAdapter\n"
+                "recommended_action=use web adapter"
+            )
+        return await adapter.chrome_smoke_test(
+            target_url=target_url,
+            user_data_dir_override=user_data_dir_override,
+        )
+
+    async def _run_lifecycle_test(
+        launch_mode: str = "persistent_executable",
+        skip_goto: bool = True,
+        hold_seconds: int = 10,
+        target_url: str | None = None,
+        minimal_args: bool = True,
+        user_data_dir_override: str | None = None,
+    ) -> str:
+        if not isinstance(adapter, GPTProWebAdapter):
+            return (
+                "BRIDGE_CHROME_LIFECYCLE_TEST_FAILED\n"
+                "reason=unsupported_adapter\n"
+                "adapter_type=GPTAPIAdapter\n"
+                "recommended_action=use web adapter"
+            )
+        return await adapter.chrome_lifecycle_test(
+            launch_mode=launch_mode,
+            skip_goto=skip_goto,
+            hold_seconds=hold_seconds,
+            target_url=target_url,
+            minimal_args=minimal_args,
+            user_data_dir_override=user_data_dir_override,
+        )
+
+    @server.tool(
+        description="""Ask the user's ChatGPT Web session for AI Tech Lead guidance.
+
+By default this tool sends only the explicit question text and does not read or
+send local workspace files. Set include_workspace_context=true only when the
+user explicitly wants repository context included in the ChatGPT Web request.
+The adapter uses the best available model in the user's ChatGPT Web account and
+falls back to the currently selected web model when preferred models are not
+available.
+"""
+    )
+    async def ask_pro_architect(
+        question: str,
+        context_hints: list[str] | None = None,
+        include_workspace_context: bool = False,
+    ) -> str:
+        """
+        Ask ChatGPT Web to provide architectural guidance for a technical question.
+        """
+        _log_stage("mcp.ask_pro_architect.enter", {"include_workspace_context": include_workspace_context})
+        logging.info("[MCP] ask_pro_architect enter")
+        last_stage = "mcp.ask_pro_architect.enter"
+        try:
+            if include_workspace_context:
+                _log_stage("context.collect.start")
+                last_stage = "context.collect.start"
+            else:
+                _log_stage("context.collect.skipped")
+                last_stage = "context.collect.skipped"
+            _log_stage("architect.prompt.build.start")
+            answer = await asyncio.wait_for(
+                architect.run(
+                    question,
+                    context_hints=context_hints or None,
+                    include_workspace_context=include_workspace_context,
+                ),
+                timeout=tool_timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            stage = _current_stage("mcp.ask_pro_architect.timeout")
+            _log_stage("mcp.ask_pro_architect.timeout", {"stage": stage})
+            timeout_msg = _tool_timeout_error("ask_pro_architect", stage, tool_timeout_seconds)
+            logging.info("[MCP RETURN] %s %s", type(timeout_msg), len(timeout_msg))
+            return timeout_msg
+
+        logging.info("[MCP] ask_pro_architect return")
+        logging.info("[MCP] answer_length=%s", len(answer))
+        session_manager.append("architect", question, answer)
+        logging.info("[MCP RETURN] %s %s", type(answer), len(answer))
+        logging.info(answer[:100])
+        _log_stage("mcp.ask_pro_architect.return")
+        return answer
+
+    @server.tool(
+        description="""Review local code changes with the user-provided repository context.
+
+When this MCP server runs in personal mode with context enabled, the provided
+local context is merged into the prompt sent to the current ChatGPT Web model.
+"""
+    )
+    async def review_pro_code(
+        files: list[str] | None = None,
+        diff: bool = True,
+        focus: str | None = None,
+    ) -> str:
+        """
+        Review code using local git diff and repository context.
+        """
+        _log_stage("mcp.review_pro_code.enter")
+        logging.info("[MCP] review_pro_code enter")
+        last_stage = "mcp.review_pro_code.enter"
+        try:
+            answer = await asyncio.wait_for(
+                reviewer.run(files=files, diff=diff, focus=focus),
+                timeout=tool_timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            _log_stage("mcp.review_pro_code.timeout")
+            timeout_msg = _tool_timeout_error("review_pro_code", last_stage, tool_timeout_seconds)
+            logging.info("[MCP RETURN] %s %s", type(timeout_msg), len(timeout_msg))
+            return timeout_msg
+        session_manager.append("reviewer", f"review diff={diff}, files={files}, focus={focus}", answer)
+        logging.info("[MCP RETURN] %s %s", type(answer), len(answer))
+        logging.info(answer[:100])
+        _log_stage("mcp.review_pro_code.return")
+        return answer
+
+    @server.tool(
+        description="""Debug compile/runtime errors with optional local repo context.
+
+When context is enabled in personal mode, the provided local context is merged
+into the prompt sent to the current ChatGPT Web model.
+"""
+    )
+    async def debug_pro_error(
+        error_text: str,
+        log_path: str | None = None,
+        context_hints: list[str] | None = None,
+    ) -> str:
+        """
+        Analyze a compiler/runtime error with local context.
+        """
+        _log_stage("mcp.debug_pro_error.enter")
+        logging.info("[MCP] debug_pro_error enter")
+        last_stage = "mcp.debug_pro_error.enter"
+        try:
+            answer = await asyncio.wait_for(
+                debugger.run(error_text=error_text, log_path=log_path, context_hints=context_hints),
+                timeout=tool_timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            _log_stage("mcp.debug_pro_error.timeout")
+            timeout_msg = _tool_timeout_error("debug_pro_error", last_stage, tool_timeout_seconds)
+            logging.info("[MCP RETURN] %s %s", type(timeout_msg), len(timeout_msg))
+            return timeout_msg
+        session_manager.append("debugger", error_text, answer)
+        logging.info("[MCP RETURN] %s %s", type(answer), len(answer))
+        logging.info(answer[:100])
+        _log_stage("mcp.debug_pro_error.return")
+        return answer
+
+    @server.tool(
+        description="""Check bridge runtime status and adapter configuration.
+
+No browser or heavy workspace read is used. Returns a compact health summary.
+"""
+    )
+    async def bridge_health_check() -> str:
+        _log_stage("mcp.bridge_health_check.enter")
+        lines = [
+            "BRIDGE_HEALTH_CHECK_OK",
+            f"server_path={Path(__file__).resolve()}",
+            f"cwd={Path.cwd()}",
+            f"config_path={resolved_config_path}",
+            f"adapter_type={adapter_type}",
+            f"web_base_url={web_cfg.get('base_url', 'https://chatgpt.com')}",
+            f"user_data_dir={web_user_data_dir}",
+            f"web_executable_path={web_cfg.get('executable_path', '<unset>')}",
+            f"model_strategy={model_strategy.get('mode', 'best_available')}",
+            f"fallback_to_current_model={model_strategy.get('fallback_to_current_model', True)}",
+            f"tool_timeout_seconds={tool_timeout_seconds}",
+            f"web_query_timeout_seconds={runtime_cfg.get('web_query_timeout_seconds', 150)}",
+            "tools_loaded=ask_pro_architect,review_pro_code,debug_pro_error,bridge_health_check,bridge_chrome_preflight,bridge_chrome_smoke_test,bridge_chrome_lifecycle_test",
+        ]
+        result = "\n".join(lines)
+        _log_stage("mcp.bridge_health_check.return")
+        return result
+
+    @server.tool(
+        description="""Check Chrome executable and profile readiness for ChatGPT Web launch."""
+    )
+    async def bridge_chrome_preflight() -> str:
+        _log_stage("mcp.bridge_chrome_preflight.enter")
+        logging.info("[MCP] bridge_chrome_preflight enter")
+        last_stage = "mcp.bridge_chrome_preflight.enter"
+        try:
+            result = await asyncio.wait_for(asyncio.to_thread(_format_preflight_result), timeout=tool_timeout_seconds)
+            _log_stage("mcp.bridge_chrome_preflight.return")
+            logging.info("[MCP RETURN] %s %s", type(result), len(result))
+            return result
+        except asyncio.TimeoutError:
+            _log_stage("mcp.bridge_chrome_preflight.timeout")
+            timeout_msg = _tool_timeout_error("bridge_chrome_preflight", last_stage, tool_timeout_seconds)
+            logging.info("[MCP RETURN] %s %s", type(timeout_msg), len(timeout_msg))
+            return timeout_msg
+
+    @server.tool(
+        description="""Run a minimal ChatGPT Web launch smoke test (launch + goto + close)."""
+    )
+    async def bridge_chrome_smoke_test(
+        target_url: str | None = None,
+        user_data_dir_override: str | None = None,
+    ) -> str:
+        _log_stage("mcp.bridge_chrome_smoke_test.enter")
+        logging.info("[MCP] bridge_chrome_smoke_test enter")
+        last_stage = "mcp.bridge_chrome_smoke_test.enter"
+        try:
+            result = await asyncio.wait_for(
+                _run_smoke_test(
+                    target_url=target_url,
+                    user_data_dir_override=user_data_dir_override,
+                ),
+                timeout=tool_timeout_seconds,
+            )
+            _log_stage("mcp.bridge_chrome_smoke_test.return")
+            logging.info("[MCP RETURN] %s %s", type(result), len(result))
+            return result
+        except asyncio.TimeoutError:
+            _log_stage("mcp.bridge_chrome_smoke_test.timeout")
+            timeout_msg = _tool_timeout_error("bridge_chrome_smoke_test", last_stage, tool_timeout_seconds)
+            logging.info("[MCP RETURN] %s %s", type(timeout_msg), len(timeout_msg))
+            return timeout_msg
+
+    @server.tool(
+        description="""Run focused Chrome lifecycle diagnostics without forcing a specific page navigation.
+
+This tool distinguishes launch, hold, and close stages and helps identify
+environmental failures when Playwright launches close too quickly.
+"""
+    )
+    async def bridge_chrome_lifecycle_test(
+        launch_mode: str = "persistent_executable",
+        skip_goto: bool = True,
+        hold_seconds: int = 10,
+        target_url: str | None = None,
+        minimal_args: bool = True,
+        user_data_dir_override: str | None = None,
+    ) -> str:
+        _log_stage("mcp.bridge_chrome_lifecycle_test.enter")
+        logging.info("[MCP] bridge_chrome_lifecycle_test enter")
+        last_stage = "mcp.bridge_chrome_lifecycle_test.enter"
+        try:
+            result = await asyncio.wait_for(
+                _run_lifecycle_test(
+                    launch_mode=launch_mode,
+                    skip_goto=skip_goto,
+                    hold_seconds=hold_seconds,
+                    target_url=target_url,
+                    minimal_args=minimal_args,
+                    user_data_dir_override=user_data_dir_override,
+                ),
+                timeout=tool_timeout_seconds,
+            )
+            _log_stage("mcp.bridge_chrome_lifecycle_test.return")
+            logging.info("[MCP RETURN] %s %s", type(result), len(result))
+            return result
+        except asyncio.TimeoutError:
+            _log_stage("mcp.bridge_chrome_lifecycle_test.timeout")
+            timeout_msg = _tool_timeout_error("bridge_chrome_lifecycle_test", last_stage, tool_timeout_seconds)
+            logging.info("[MCP RETURN] %s %s", type(timeout_msg), len(timeout_msg))
+            return timeout_msg
+
+    return server
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Codex-ChatGPTWeb Bridge MCP server")
+    parser.add_argument("--config", default=str(DEFAULT_CONFIG_PATH), help="Path to config yaml.")
+    parser.add_argument("--verbose", action="store_true", help="Enable debug logging.")
+    args = parser.parse_args()
+
+    server = create_server(config_path=args.config, verbose=args.verbose)
+    server.run(transport="stdio")
+
+
+if __name__ == "__main__":
+    main()

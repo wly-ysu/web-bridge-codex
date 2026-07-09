@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+
+.bridge_memory.json
+bridge_mcp.log
+bridge_launch_matrix.log
+logs/
+
+config.yaml
+.gptpro-browser/
+browser_data/
+
+bridge_test_context.txt
+bad_indent_hello.cpp
+tmp_check_chrome_launch.py
+
+.agents/
