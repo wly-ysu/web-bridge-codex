@@ -49,6 +49,7 @@ def _log_adapter_init(**fields: object) -> None:
 from adapters.gpt_api import GPTAPIAdapter
 from adapters.gptpro_web import GPTProWebAdapter
 from core.context_manager import ContextManager
+from core.prompt_router import build_web_first_prompt
 from core.session_manager import SessionManager
 from tools.architect import ArchitectAgent
 from tools.reviewer import ReviewerAgent
@@ -65,6 +66,23 @@ DEFAULT_CONFIG = {
     "adapter": "web",
     "git": {"max_diff_chars": 12000},
     "bridge": {"personal_mode": True, "allow_workspace_context": True},
+    "workflow": {
+        "mode": "web_first",
+        "codex_role": "executor",
+        "web_lead_role": "planner",
+        "default_route_all_natural_language_to_web": True,
+        "local_execution_prefix": "本地执行：",
+        "require_web_plan_before_implementation": True,
+        "route_user_corrections_to_web": True,
+    },
+    "web_lead": {
+        "default_tool": "route_to_web_lead",
+        "fallback_tool": "ask_pro_architect",
+        "default_profile": "balanced",
+        "vague_requirement_profile": "balanced",
+        "complex_requirement_profile": "deep_lite",
+        "pro_profile": "pro_deep",
+    },
     "context": {
         "enabled": True,
         "max_file_chars": 6000,
@@ -115,6 +133,16 @@ DEFAULT_CONFIG = {
             "article",
             "div[data-testid='markdown']",
         ],
+    },
+    "browser_tabs": {
+        "cleanup_before_query": True,
+        "cleanup_after_query": True,
+        "keep_latest_chatgpt_tabs": 0,
+        "close_about_blank": True,
+        "close_chatgpt_tabs": True,
+        "max_tabs_warning_threshold": 5,
+        "ensure_startup_page": True,
+        "startup_url": "about:blank",
     },
     "api_adapter": {
         "model": "gpt-5.5-pro",
@@ -239,6 +267,7 @@ def create_server(config_path: str | Path = DEFAULT_CONFIG_PATH, verbose: bool =
     session_manager = SessionManager(str(workspace_root / config.get("memory_file", ".bridge_memory.json")))
 
     architect = ArchitectAgent(context_manager=context_manager, adapter=adapter)
+    web_lead = ArchitectAgent(context_manager=context_manager, adapter=adapter, prompt_router=build_web_first_prompt)
     reviewer = ReviewerAgent(context_manager=context_manager, adapter=adapter)
     debugger = DebuggerAgent(context_manager=context_manager, adapter=adapter)
 
@@ -326,6 +355,98 @@ def create_server(config_path: str | Path = DEFAULT_CONFIG_PATH, verbose: bool =
             minimal_args=minimal_args,
             user_data_dir_override=user_data_dir_override,
         )
+
+    async def _run_tab_health_check(user_data_dir_override: str | None = None) -> str:
+        if not isinstance(adapter, GPTProWebAdapter):
+            return (
+                "BRIDGE_TAB_HEALTH_CHECK_FAILED\n"
+                "reason=unsupported_adapter\n"
+                "adapter_type=GPTAPIAdapter\n"
+                "recommended_action=use web adapter"
+            )
+        return await adapter.bridge_tab_health_check(user_data_dir_override=user_data_dir_override)
+
+    async def _run_close_extra_tabs(
+        keep_latest: int = 1,
+        dry_run: bool = True,
+        user_data_dir_override: str | None = None,
+    ) -> str:
+        if not isinstance(adapter, GPTProWebAdapter):
+            return (
+                "BRIDGE_CLOSE_EXTRA_TABS_FAILED\n"
+                "reason=unsupported_adapter\n"
+                "adapter_type=GPTAPIAdapter\n"
+                "recommended_action=use web adapter"
+            )
+        return await adapter.bridge_close_extra_tabs(
+            keep_latest=keep_latest,
+            dry_run=dry_run,
+            user_data_dir_override=user_data_dir_override,
+        )
+
+    @server.tool(
+        description="""Route a natural-language user request to ChatGPT Web Lead first.
+
+Use this for vague requirements, architecture questions, implementation planning,
+and user corrections during execution. Codex should execute only after this tool
+returns a concrete Web Lead plan. Use ask_pro_architect as fallback if this tool
+is unavailable.
+"""
+    )
+    async def route_to_web_lead(
+        message: str,
+        mode: str | None = None,
+        profile: str | None = None,
+        execute_after_plan: bool = True,
+    ) -> str:
+        """
+        Ask Web Lead to refine a vague request and produce Codex execution steps.
+        """
+        selected_profile = profile or str(config.get("web_lead", {}).get("default_profile", "balanced"))
+        selected_mode = mode or str(config.get("workflow", {}).get("mode", "web_first"))
+        _log_stage(
+            "mcp.route_to_web_lead.enter",
+            {
+                "mode": selected_mode,
+                "profile": selected_profile,
+                "execute_after_plan": execute_after_plan,
+            },
+        )
+        logging.info("[MCP] route_to_web_lead enter")
+        routed_message = "\n".join(
+            [
+                f"mode={selected_mode}",
+                f"profile={selected_profile}",
+                f"execute_after_plan={execute_after_plan}",
+                "",
+                "User natural-language request:",
+                message,
+                "",
+                "Required output:",
+                "Refine the requirement and produce concrete Codex execution instructions.",
+                "Do not assume Codex should implement before this plan is reviewed.",
+            ]
+        )
+        try:
+            answer = await asyncio.wait_for(
+                web_lead.run(
+                    routed_message,
+                    context_hints=None,
+                    include_workspace_context=False,
+                ),
+                timeout=tool_timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            stage = _current_stage("mcp.route_to_web_lead.timeout")
+            _log_stage("mcp.route_to_web_lead.timeout", {"stage": stage})
+            timeout_msg = _tool_timeout_error("route_to_web_lead", stage, tool_timeout_seconds)
+            logging.info("[MCP RETURN] %s %s", type(timeout_msg), len(timeout_msg))
+            return timeout_msg
+
+        session_manager.append("web_lead", message, answer)
+        logging.info("[MCP RETURN] %s %s", type(answer), len(answer))
+        _log_stage("mcp.route_to_web_lead.return")
+        return answer
 
     @server.tool(
         description="""Ask the user's ChatGPT Web session for AI Tech Lead guidance.
@@ -469,7 +590,7 @@ No browser or heavy workspace read is used. Returns a compact health summary.
             f"fallback_to_current_model={model_strategy.get('fallback_to_current_model', True)}",
             f"tool_timeout_seconds={tool_timeout_seconds}",
             f"web_query_timeout_seconds={runtime_cfg.get('web_query_timeout_seconds', 150)}",
-            "tools_loaded=ask_pro_architect,review_pro_code,debug_pro_error,bridge_health_check,bridge_chrome_preflight,bridge_chrome_smoke_test,bridge_chrome_lifecycle_test",
+            "tools_loaded=route_to_web_lead,ask_pro_architect,review_pro_code,debug_pro_error,bridge_health_check,bridge_chrome_preflight,bridge_chrome_smoke_test,bridge_chrome_lifecycle_test,bridge_tab_health_check,bridge_close_extra_tabs",
         ]
         result = "\n".join(lines)
         _log_stage("mcp.bridge_health_check.return")
@@ -517,6 +638,56 @@ No browser or heavy workspace read is used. Returns a compact health summary.
         except asyncio.TimeoutError:
             _log_stage("mcp.bridge_chrome_smoke_test.timeout")
             timeout_msg = _tool_timeout_error("bridge_chrome_smoke_test", last_stage, tool_timeout_seconds)
+            logging.info("[MCP RETURN] %s %s", type(timeout_msg), len(timeout_msg))
+            return timeout_msg
+
+    @server.tool(
+        description="""Count tabs in the ChatGPT Web AI profile without sending prompts or reading workspace files."""
+    )
+    async def bridge_tab_health_check(user_data_dir_override: str | None = None) -> str:
+        _log_stage("mcp.bridge_tab_health_check.enter")
+        logging.info("[MCP] bridge_tab_health_check enter")
+        last_stage = "mcp.bridge_tab_health_check.enter"
+        try:
+            result = await asyncio.wait_for(
+                _run_tab_health_check(user_data_dir_override=user_data_dir_override),
+                timeout=tool_timeout_seconds,
+            )
+            _log_stage("mcp.bridge_tab_health_check.return")
+            logging.info("[MCP RETURN] %s %s", type(result), len(result))
+            return result
+        except asyncio.TimeoutError:
+            _log_stage("mcp.bridge_tab_health_check.timeout")
+            timeout_msg = _tool_timeout_error("bridge_tab_health_check", last_stage, tool_timeout_seconds)
+            logging.info("[MCP RETURN] %s %s", type(timeout_msg), len(timeout_msg))
+            return timeout_msg
+
+    @server.tool(
+        description="""Dry-run or close extra ChatGPT/about:blank tabs in the AI profile. Defaults to dry_run=true."""
+    )
+    async def bridge_close_extra_tabs(
+        keep_latest: int = 1,
+        dry_run: bool = True,
+        user_data_dir_override: str | None = None,
+    ) -> str:
+        _log_stage("mcp.bridge_close_extra_tabs.enter", {"keep_latest": keep_latest, "dry_run": dry_run})
+        logging.info("[MCP] bridge_close_extra_tabs enter")
+        last_stage = "mcp.bridge_close_extra_tabs.enter"
+        try:
+            result = await asyncio.wait_for(
+                _run_close_extra_tabs(
+                    keep_latest=keep_latest,
+                    dry_run=dry_run,
+                    user_data_dir_override=user_data_dir_override,
+                ),
+                timeout=tool_timeout_seconds,
+            )
+            _log_stage("mcp.bridge_close_extra_tabs.return")
+            logging.info("[MCP RETURN] %s %s", type(result), len(result))
+            return result
+        except asyncio.TimeoutError:
+            _log_stage("mcp.bridge_close_extra_tabs.timeout")
+            timeout_msg = _tool_timeout_error("bridge_close_extra_tabs", last_stage, tool_timeout_seconds)
             logging.info("[MCP RETURN] %s %s", type(timeout_msg), len(timeout_msg))
             return timeout_msg
 

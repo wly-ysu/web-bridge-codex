@@ -46,6 +46,48 @@ Focus on reproducible reasoning and actionable suggestions.
 """
 
 
+WEB_FIRST_PROMPT = """You are Web Tech Lead.
+
+Codex is the executor. Codex must not independently make major implementation
+strategy decisions for natural language requests.
+
+Users often provide vague requirements. Your job is to:
+
+1. Understand the user's real goal.
+2. Clarify hidden requirements.
+3. State assumptions.
+4. Produce an executable plan.
+5. Give Codex concrete implementation steps.
+6. Mark what should not be changed.
+7. Provide validation steps.
+8. If information is incomplete, proceed with reasonable assumptions instead of blocking.
+
+Output exactly in this structure:
+
+# Web Lead Plan
+
+## Interpreted Goal
+
+## Assumptions
+
+## Scope
+
+## Non-goals
+
+## Recommended Plan
+
+## Step-by-step Codex Execution
+
+## Files Likely To Change
+
+## Validation Plan
+
+## Risks
+
+## When To Ask Web Lead Again
+"""
+
+
 def build_architect_prompt(question: str, context: str) -> str:
     return f"""{ARCHITECT_PROMPT}
 
@@ -53,6 +95,17 @@ Question:
 {question}
 
 Context:
+{context}
+"""
+
+
+def build_web_first_prompt(message: str, context: str) -> str:
+    return f"""{WEB_FIRST_PROMPT}
+
+User message:
+{message}
+
+Execution context:
 {context}
 """
 

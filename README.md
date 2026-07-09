@@ -6,6 +6,7 @@ model in your account at runtime.
 
 It provides three MCP tools:
 
+- `route_to_web_lead`
 - `ask_pro_architect`
 - `review_pro_code`
 - `debug_pro_error`
@@ -84,6 +85,121 @@ Expected Codex result:
 MVP_WEB_BRIDGE_SUCCESS
 ```
 
+For the current delivery scope, pending validation work, and roadmap priorities, see
+[docs/REQUIREMENTS_ROADMAP.md](docs/REQUIREMENTS_ROADMAP.md).
+
+## Web-First Usage
+
+Daily usage should follow the Web-First workflow:
+
+```text
+User vague request
+-> route_to_web_lead
+-> Web Lead refines requirement and returns a plan
+-> Codex executes the plan
+```
+
+Normal user input:
+
+```text
+实现未完成需求
+```
+
+Architecture input:
+
+```text
+这个模块架构怎么看？
+```
+
+Correction during execution:
+
+```text
+不对，先修 tab 泄漏，不要改模型策略
+```
+
+Codex should route these natural-language requests to Web Lead first.
+
+If you only want local execution and do not want Web Lead planning, use:
+
+```text
+本地执行：查看 git diff
+```
+
+Force Pro only for high-value deep work:
+
+```text
+用 Pro 深度分析这个长期架构决策
+```
+
+For the full workflow rules, see [docs/WEB_FIRST_WORKFLOW.md](docs/WEB_FIRST_WORKFLOW.md).
+
+## Web Tech Lead Workflow
+
+Codex is the executor. ChatGPT Web is the Tech Lead.
+
+Codex should handle local execution work: reading files, editing code, running commands,
+building, testing, and applying patches. Non-execution reasoning should normally go to
+ChatGPT Web first: architecture analysis, design decisions, risk judgment, review,
+debug strategy, multi-option tradeoffs, patent or algorithm analysis, and other complex
+technical thinking.
+
+Default flow:
+
+```text
+User asks natural language question
+-> Codex classifies task
+-> non-execution reasoning goes to ChatGPT Web MCP
+-> ChatGPT Web returns plan
+-> Codex executes plan
+```
+
+Model selection policy:
+
+| Scenario | Tool | Profile | Model tendency |
+|---|---|---|---|
+| Simple judgment | `ask_pro_architect` | `fast` | GPT-5.5 |
+| Normal architecture | `ask_pro_architect` | `balanced` | GPT-5.5 |
+| 30min-2h complex problem | `ask_pro_architect` | `deep_lite` | GPT-5.5 first |
+| 2h+ strategic problem | `ask_pro_architect` | `pro_deep` | GPT-5.5 Pro first |
+| Normal review | `review_pro_code` | `review` | GPT-5.5 |
+| Critical review | `review_pro_code` | `pro_review` | GPT-5.5 Pro first |
+| Normal debug | `debug_pro_error` | `debug` | GPT-5.5 |
+| Complex debug | `debug_pro_error` | `pro_debug` | GPT-5.5 Pro first |
+
+## Model Budget Strategy
+
+The default policy is to avoid spending Pro quota.
+
+Normal questions should use GPT-5.5 or the current ChatGPT Web model first. Pro / Pro
+extension should be reserved for problems likely to need 2+ hours of deep reasoning or
+high-value strategic decisions.
+
+Use GPT-5.5 first for:
+
+- simple explanations
+- normal architecture questions
+- routine review
+- ordinary debug
+- medium difficulty questions
+- problems likely solvable within 30 minutes
+
+Reserve Pro for:
+
+- 2h+ deep architecture reasoning
+- patent / innovation strategy
+- autonomous driving safety-critical architecture
+- unresolved multi-round failures
+- complex cross-module migration strategy
+- high-risk final architecture review
+- long-term project direction decisions
+
+Users can explicitly request:
+
+- `profile=fast`
+- `profile=balanced`
+- `profile=deep_lite`
+- `profile=pro_deep`
+
 ## 3) Environment variables
 
 - `GPTPRO_ADAPTER` : `web` (default) or `api`
@@ -93,6 +209,19 @@ MVP_WEB_BRIDGE_SUCCESS
 - `GPTPRO_WEBDRIVER` : optional, if you want to run a specific Chromium executable
 
 ## 4) Tool interfaces
+
+### `route_to_web_lead`
+
+Input:
+
+- `message` (string): natural-language user request or correction.
+- `mode` (string, optional): workflow mode, default `web_first`.
+- `profile` (string, optional): `fast`, `balanced`, `deep_lite`, or `pro_deep`.
+- `execute_after_plan` (bool, default `true`): whether Codex should execute after receiving the plan.
+
+Output:
+
+- Web Lead requirement refinement and Codex execution plan.
 
 ### `ask_pro_architect`
 

@@ -26,6 +26,7 @@ class GPTProWebAdapter:
         self.logger = logger
         self.workspace = Path(workspace)
         self.runtime_cfg = config.get("runtime", {})
+        self.browser_tabs_cfg = config.get("browser_tabs", {})
         self.last_stage = "initialized"
 
     def _set_stage(self, stage: str, **extra: object) -> None:
@@ -165,6 +166,10 @@ class GPTProWebAdapter:
         ):
             if required not in base_args:
                 base_args.append(required)
+        tab_cfg = self._tab_cleanup_config()
+        startup_url = str(self.browser_tabs_cfg.get("startup_url", "about:blank")) if isinstance(self.browser_tabs_cfg, dict) else "about:blank"
+        if bool(tab_cfg.get("ensure_startup_page", True)) and startup_url and startup_url not in base_args:
+            base_args.append(startup_url)
 
         launch_kwargs: dict[str, object] = {
             "user_data_dir": str(profile_dir),
@@ -438,6 +443,172 @@ if ($null -eq $procs) { "[]" } else { $procs }
             self._set_stage(f"{stage_prefix}.close", call_id=call_id or "<none>", status="error")
             return close_error
 
+    async def _safe_close_page(self, page, call_id: str | None = None, stage_prefix: str = "web.page") -> tuple[bool, str | None]:
+        if page is None:
+            return False, None
+        try:
+            if page.is_closed():
+                self._set_stage(f"{stage_prefix}.close.done", call_id=call_id or "<none>", fresh_page_closed=True, already_closed=True)
+                return True, None
+        except Exception as exc:
+            close_error = f"{type(exc).__name__}: {exc}"
+            self._set_stage(f"{stage_prefix}.close.warning", call_id=call_id or "<none>", error=close_error)
+            return False, close_error
+
+        try:
+            await page.close()
+            pages_after = "<unknown>"
+            try:
+                pages_after = len(page.context.pages)
+            except Exception:
+                pass
+            logging.info(
+                "[TAB_STATE] call_id=%s pages_after_fresh_page_close=%s fresh_page_closed=true",
+                call_id or "<none>",
+                pages_after,
+            )
+            self._set_stage(f"{stage_prefix}.close.done", call_id=call_id or "<none>", fresh_page_closed=True)
+            return True, None
+        except Exception as exc:
+            close_error = f"{type(exc).__name__}: {exc}"
+            self._log("warning", "fresh page close failed", {"call_id": call_id or "<none>", "stage_prefix": stage_prefix, "error": close_error})
+            self._set_stage(f"{stage_prefix}.close.warning", call_id=call_id or "<none>", error=close_error)
+            return False, close_error
+
+    def _tab_cleanup_config(self) -> dict[str, object]:
+        cfg = self.browser_tabs_cfg if isinstance(self.browser_tabs_cfg, dict) else {}
+        return {
+            "cleanup_before_query": bool(cfg.get("cleanup_before_query", True)),
+            "cleanup_after_query": bool(cfg.get("cleanup_after_query", True)),
+            "keep_latest_chatgpt_tabs": max(0, int(cfg.get("keep_latest_chatgpt_tabs", 0))),
+            "close_about_blank": bool(cfg.get("close_about_blank", True)),
+            "close_chatgpt_tabs": bool(cfg.get("close_chatgpt_tabs", True)),
+            "max_tabs_warning_threshold": max(1, int(cfg.get("max_tabs_warning_threshold", 5))),
+            "ensure_startup_page": bool(cfg.get("ensure_startup_page", True)),
+        }
+
+    def _is_cleanup_candidate(self, url: str, cfg: dict[str, object]) -> bool:
+        kind = self._tab_kind(url)
+        if kind == "chatgpt":
+            return bool(cfg["close_chatgpt_tabs"])
+        if kind == "about_blank":
+            return bool(cfg["close_about_blank"])
+        return False
+
+    async def _cleanup_browser_tabs(self, context, call_id: str, phase: str) -> dict[str, object]:
+        cfg = self._tab_cleanup_config()
+        pages = list(context.pages)
+        page_records: list[tuple[int, object, str, str]] = []
+        for index, page in enumerate(pages):
+            try:
+                url = page.url
+            except Exception:
+                url = ""
+            page_records.append((index, page, url, self._tab_kind(url)))
+
+        chatgpt_records = [record for record in page_records if record[3] == "chatgpt"]
+        about_blank_records = [record for record in page_records if record[3] == "about_blank"]
+        keep_latest = int(cfg["keep_latest_chatgpt_tabs"])
+        kept_chatgpt = chatgpt_records[-keep_latest:] if keep_latest else []
+        kept_page_ids = {id(record[1]) for record in kept_chatgpt}
+        to_close = [
+            record
+            for record in page_records
+            if self._is_cleanup_candidate(record[2], cfg) and id(record[1]) not in kept_page_ids
+        ]
+        keepalive_preserved = False
+        if phase.startswith("before_") and page_records and len(to_close) == len(page_records):
+            keepalive_record = about_blank_records[-1] if about_blank_records else to_close[-1]
+            keepalive_page_id = id(keepalive_record[1])
+            to_close = [record for record in to_close if id(record[1]) != keepalive_page_id]
+            keepalive_preserved = True
+        closed = 0
+        warnings: list[str] = []
+
+        logging.info(
+            "[TAB_CLEANUP] call_id=%s phase=%s pages_before=%s chatgpt_pages_before=%s about_blank_pages_before=%s keep_latest_chatgpt_tabs=%s to_close=%s keepalive_preserved=%s",
+            call_id,
+            phase,
+            len(page_records),
+            len(chatgpt_records),
+            len(about_blank_records),
+            keep_latest,
+            len(to_close),
+            keepalive_preserved,
+        )
+        self._set_stage(
+            f"web.tabs.cleanup.{phase}.start",
+            call_id=call_id,
+            pages_before=len(page_records),
+            chatgpt_pages_before=len(chatgpt_records),
+            about_blank_pages_before=len(about_blank_records),
+            to_close=len(to_close),
+            keepalive_preserved=keepalive_preserved,
+        )
+
+        for index, page, url, kind in to_close:
+            try:
+                if not page.is_closed():
+                    await page.close()
+                    closed += 1
+            except Exception as exc:
+                warnings.append(f"{index}:{kind}:{type(exc).__name__}:{exc}")
+
+        remaining_urls = []
+        for page in context.pages:
+            try:
+                if not page.is_closed():
+                    remaining_urls.append(page.url)
+            except Exception:
+                pass
+        pages_after = len(remaining_urls)
+        chatgpt_after = sum(1 for url in remaining_urls if self._tab_kind(url) == "chatgpt")
+        about_blank_after = sum(1 for url in remaining_urls if self._tab_kind(url) == "about_blank")
+        warning = "tab leak risk" if pages_after > int(cfg["max_tabs_warning_threshold"]) else "<none>"
+
+        logging.info(
+            "[TAB_CLEANUP] call_id=%s phase=%s closed=%s pages_after=%s chatgpt_pages_after=%s about_blank_pages_after=%s warning=%s close_warnings=%s",
+            call_id,
+            phase,
+            closed,
+            pages_after,
+            chatgpt_after,
+            about_blank_after,
+            warning,
+            warnings[:5],
+        )
+        self._set_stage(
+            f"web.tabs.cleanup.{phase}.done",
+            call_id=call_id,
+            closed=closed,
+            pages_after=pages_after,
+            chatgpt_pages_after=chatgpt_after,
+            about_blank_pages_after=about_blank_after,
+            warning=warning,
+        )
+        return {
+            "pages_before": len(page_records),
+            "chatgpt_pages_before": len(chatgpt_records),
+            "about_blank_pages_before": len(about_blank_records),
+            "to_close": len(to_close),
+            "closed": closed,
+            "pages_after": pages_after,
+            "chatgpt_pages_after": chatgpt_after,
+            "about_blank_pages_after": about_blank_after,
+            "warning": warning,
+            "close_warnings": warnings,
+            "keepalive_preserved": keepalive_preserved,
+        }
+
+    async def _safe_cleanup_browser_tabs(self, context, call_id: str, phase: str) -> dict[str, object]:
+        try:
+            return await self._cleanup_browser_tabs(context, call_id, phase)
+        except Exception as exc:
+            warning = f"{type(exc).__name__}: {exc}"
+            logging.warning("[TAB_CLEANUP] call_id=%s phase=%s cleanup_warning=%s", call_id, phase, warning)
+            self._set_stage(f"web.tabs.cleanup.{phase}.warning", call_id=call_id, error=warning)
+            return {"warning": warning, "closed": 0}
+
     def run_chrome_preflight(self, user_data_dir_override: str | None = None) -> dict[str, object]:
         executable_path = self.cfg.get("executable_path", "")
         executable_exists = bool(executable_path and Path(os.path.expandvars(os.path.expanduser(executable_path))).exists())
@@ -606,8 +777,9 @@ if ($null -eq $procs) { "[]" } else { $procs }
         page_stage_prefix: str = "web.query",
         goto_stage_prefix: str = "web",
         goto_timeout_ms: int | None = None,
-    ) -> tuple[object, int, bool, bool, str, bool, str, str]:
+        ) -> tuple[object, int, bool, bool, str, bool, str, str]:
         existing_pages_count = len(context.pages)
+        logging.info("[TAB_STATE] call_id=%s existing_pages_before=%s", call_id, existing_pages_count)
         self._set_stage(
             f"{page_stage_prefix}.new_page.start",
             call_id=call_id,
@@ -615,6 +787,7 @@ if ($null -eq $procs) { "[]" } else { $procs }
         )
 
         page = await context.new_page()
+        logging.info("[TAB_STATE] call_id=%s existing_pages_after_new_page=%s", call_id, len(context.pages))
         fresh_page_created = page is not None
         fresh_page_url = ""
         fresh_page_is_closed = True
@@ -683,7 +856,9 @@ if ($null -eq $procs) { "[]" } else { $procs }
 
     async def _query_inner(self, prompt: str, base_url: str, prompt_timeout_ms: int, call_id: str, preflight: dict[str, object]) -> str:
         browser = None
+        page = None
         close_error: str | None = None
+        page_close_error: str | None = None
         result_text: str | None = None
         error_text: str | None = None
         try:
@@ -702,6 +877,9 @@ if ($null -eq $procs) { "[]" } else { $procs }
                         "launch_args": launch_args,
                     },
                 )
+
+                if self._tab_cleanup_config()["cleanup_before_query"]:
+                    await self._safe_cleanup_browser_tabs(browser, call_id, phase="before_query")
 
                 (
                     page,
@@ -864,7 +1042,12 @@ if ($null -eq $procs) { "[]" } else { $procs }
             if error_text is None:
                 error_text = self._raise_web_error("web.query", exc)
         finally:
+            if page is not None:
+                self._log("info", "close fresh page", {"call_id": call_id})
+                _, page_close_error = await self._safe_close_page(page, call_id=call_id, stage_prefix="web.query.page")
             if browser is not None:
+                if self._tab_cleanup_config()["cleanup_after_query"]:
+                    await self._safe_cleanup_browser_tabs(browser, call_id, phase="after_query")
                 self._log("info", "close context", {"call_id": call_id})
                 self._set_stage("web.close.start", call_id=call_id, status="start")
                 close_error = await self._safe_close_context(browser, call_id=call_id, stage_prefix="web.query")
@@ -874,8 +1057,13 @@ if ($null -eq $procs) { "[]" } else { $procs }
             return self._raise_web_error("web.close", close_error, {"check_log": "bridge_mcp.log", "stage": "web.close"})
 
         if error_text is not None:
+            warnings = []
+            if page_close_error:
+                warnings.append(f"page_close_warning={page_close_error}")
             if close_error:
-                return "\n".join([error_text, f"close_warning={close_error}"])
+                warnings.append(f"close_warning={close_error}")
+            if warnings:
+                return "\n".join([error_text, *warnings])
             return error_text
 
         if result_text is None:
@@ -992,6 +1180,7 @@ if ($null -eq $procs) { "[]" } else { $procs }
         browser = None
         page: object | None = None
         close_error: str | None = None
+        page_close_error: str | None = None
         launch_args: list[str] = []
         launch_done = False
         context_created = False
@@ -1006,6 +1195,7 @@ if ($null -eq $procs) { "[]" } else { $procs }
         page_url_after_goto = ""
         result_text: str | None = None
         error_text: str | None = None
+        fresh_page_closed = False
         try:
             self._set_stage("web.smoke_test.launch_start", call_id=call_id)
             from playwright.async_api import async_playwright
@@ -1031,6 +1221,8 @@ if ($null -eq $procs) { "[]" } else { $procs }
                     "smoke test launch",
                     {"call_id": call_id, "launch_args": launch_args, "target_url": base_url},
                 )
+                if self._tab_cleanup_config()["cleanup_before_query"]:
+                    await self._safe_cleanup_browser_tabs(browser, call_id, phase="before_smoke_test")
                 stage = "page.goto"
                 (
                     page,
@@ -1115,7 +1307,11 @@ if ($null -eq $procs) { "[]" } else { $procs }
                 ]
             )
         finally:
+            if page is not None:
+                fresh_page_closed, page_close_error = await self._safe_close_page(page, call_id=call_id, stage_prefix="web.smoke_test.page")
             if browser is not None:
+                if self._tab_cleanup_config()["cleanup_after_query"]:
+                    await self._safe_cleanup_browser_tabs(browser, call_id, phase="after_smoke_test")
                 stage = "browser.close"
                 self._log("info", "smoke test close context", {"call_id": call_id})
                 close_error = await self._safe_close_context(browser, call_id=call_id, stage_prefix="web.smoke_test")
@@ -1129,6 +1325,8 @@ if ($null -eq $procs) { "[]" } else { $procs }
                 lines.append("close_warning_type=close_only_warning")
             else:
                 lines.append("close_warning_type=close_error")
+            lines.append(f"fresh_page_closed={fresh_page_closed}")
+            lines.append(f"fresh_page_close_warning={page_close_error or '<none>'}")
             lines.append(f"close_warning={close_error or '<none>'}")
             if preflight.get("stale_lock_suspected"):
                 lines.extend(
@@ -1146,13 +1344,194 @@ if ($null -eq $procs) { "[]" } else { $procs }
             return "\n".join(lines)
 
         if result_text is not None:
+            result_lines = [
+                result_text,
+                f"fresh_page_closed={fresh_page_closed}",
+                f"fresh_page_close_warning={page_close_error or '<none>'}",
+            ]
             if close_error:
                 if "Target page, context or browser has been closed" in close_error:
-                    return "\n".join([result_text, "close_warning_type=close_only_warning", f"close_warning={close_error}", "check_log=bridge_mcp.log"])
-                return "\n".join([result_text, "close_warning_type=close_error", f"close_warning={close_error}", "check_log=bridge_mcp.log"])
-            return "\n".join([result_text, "close_warning_type=none", "close_warning=<none>", "check_log=bridge_mcp.log"])
+                    return "\n".join([*result_lines, "close_warning_type=close_only_warning", f"context_close_warning={close_error}", "check_log=bridge_mcp.log"])
+                return "\n".join([*result_lines, "close_warning_type=close_error", f"context_close_warning={close_error}", "check_log=bridge_mcp.log"])
+            return "\n".join([*result_lines, "close_warning_type=none", "context_close_warning=<none>", "check_log=bridge_mcp.log"])
 
         return "\n".join(["BRIDGE_CHROME_SMOKE_TEST_FAILED", "stage=unknown", "reason=No result produced"])
+
+    @staticmethod
+    def _tab_kind(url: str) -> str:
+        normalized = (url or "").lower()
+        if "chatgpt.com" in normalized:
+            return "chatgpt"
+        if normalized.startswith("about:blank"):
+            return "about_blank"
+        return "other"
+
+    async def bridge_tab_health_check(self, user_data_dir_override: str | None = None) -> str:
+        self._set_stage("web.tab_health.enter")
+        preflight = self.run_chrome_preflight(user_data_dir_override=user_data_dir_override)
+        if preflight["profile_in_use"]:
+            return "\n".join(
+                [
+                    "BRIDGE_TAB_HEALTH_CHECK_FAILED",
+                    "stage=preflight",
+                    "reason=profile_in_use",
+                    f"matching_pids={preflight['matching_pids']}",
+                ]
+            )
+
+        call_id = str(uuid.uuid4())
+        browser = None
+        context_close_warning: str | None = None
+        pages_count = 0
+        chatgpt_pages_count = 0
+        about_blank_pages_count = 0
+        try:
+            from playwright.async_api import async_playwright
+
+            async with async_playwright() as p:
+                browser, _, _ = await self._launch_context(p, call_id, preflight, user_data_dir_override=user_data_dir_override)
+                urls = []
+                for page in browser.pages:
+                    try:
+                        urls.append(page.url)
+                    except Exception:
+                        urls.append("")
+                pages_count = len(urls)
+                chatgpt_pages_count = sum(1 for url in urls if self._tab_kind(url) == "chatgpt")
+                about_blank_pages_count = sum(1 for url in urls if self._tab_kind(url) == "about_blank")
+        except Exception as exc:
+            return "\n".join(
+                [
+                    "BRIDGE_TAB_HEALTH_CHECK_FAILED",
+                    f"stage={self.last_stage}",
+                    f"reason={str(exc).replace(chr(10), ' | ')}",
+                    "check_log=bridge_mcp.log",
+                ]
+            )
+        finally:
+            if browser is not None:
+                context_close_warning = await self._safe_close_context(browser, call_id=call_id, stage_prefix="web.tab_health")
+
+        warning = "tab leak risk" if pages_count > 10 else "<none>"
+        return "\n".join(
+            [
+                "BRIDGE_TAB_HEALTH_CHECK_OK",
+                f"pages_count={pages_count}",
+                f"chatgpt_pages_count={chatgpt_pages_count}",
+                f"about_blank_pages_count={about_blank_pages_count}",
+                f"warning={warning}",
+                f"context_close_warning={context_close_warning or '<none>'}",
+            ]
+        )
+
+    async def bridge_close_extra_tabs(
+        self,
+        keep_latest: int = 1,
+        dry_run: bool = True,
+        user_data_dir_override: str | None = None,
+    ) -> str:
+        self._set_stage("web.close_extra_tabs.enter", keep_latest=keep_latest, dry_run=dry_run)
+        keep_latest = max(0, int(keep_latest))
+        preflight = self.run_chrome_preflight(user_data_dir_override=user_data_dir_override)
+        if preflight["profile_in_use"]:
+            return "\n".join(
+                [
+                    "BRIDGE_CLOSE_EXTRA_TABS_FAILED",
+                    "stage=preflight",
+                    "reason=profile_in_use",
+                    f"matching_pids={preflight['matching_pids']}",
+                ]
+            )
+
+        call_id = str(uuid.uuid4())
+        browser = None
+        context_close_warning: str | None = None
+        pages_total_before = 0
+        pages_total_after = 0
+        chatgpt_pages_before = 0
+        chatgpt_pages_after = 0
+        about_blank_pages_before = 0
+        about_blank_pages_after = 0
+        tabs_to_close: list[tuple[int, object, str, str]] = []
+        closed = 0
+        close_warnings: list[str] = []
+        try:
+            from playwright.async_api import async_playwright
+
+            async with async_playwright() as p:
+                browser, _, _ = await self._launch_context(p, call_id, preflight, user_data_dir_override=user_data_dir_override)
+                page_records: list[tuple[int, object, str, str]] = []
+                for index, page in enumerate(browser.pages):
+                    try:
+                        url = page.url
+                    except Exception:
+                        url = ""
+                    page_records.append((index, page, url, self._tab_kind(url)))
+
+                pages_total_before = len(page_records)
+                chatgpt_records = [record for record in page_records if record[3] == "chatgpt"]
+                about_blank_records = [record for record in page_records if record[3] == "about_blank"]
+                chatgpt_pages_before = len(chatgpt_records)
+                about_blank_pages_before = len(about_blank_records)
+                kept_chatgpt = chatgpt_records[-keep_latest:] if keep_latest else []
+                kept_ids = {id(record[1]) for record in kept_chatgpt}
+                tabs_to_close = [
+                    record
+                    for record in page_records
+                    if record[3] in {"chatgpt", "about_blank"} and id(record[1]) not in kept_ids
+                ]
+
+                if not dry_run:
+                    for index, page, url, kind in tabs_to_close:
+                        try:
+                            if not page.is_closed():
+                                await page.close()
+                                closed += 1
+                        except Exception as exc:
+                            close_warnings.append(f"{index}:{kind}:{type(exc).__name__}:{exc}")
+
+                remaining_urls = []
+                for page in browser.pages:
+                    try:
+                        if not page.is_closed():
+                            remaining_urls.append(page.url)
+                    except Exception:
+                        pass
+                pages_total_after = len(remaining_urls)
+                chatgpt_pages_after = sum(1 for url in remaining_urls if self._tab_kind(url) == "chatgpt")
+                about_blank_pages_after = sum(1 for url in remaining_urls if self._tab_kind(url) == "about_blank")
+        except Exception as exc:
+            return "\n".join(
+                [
+                    "BRIDGE_CLOSE_EXTRA_TABS_FAILED",
+                    f"stage={self.last_stage}",
+                    f"reason={str(exc).replace(chr(10), ' | ')}",
+                    "check_log=bridge_mcp.log",
+                ]
+            )
+        finally:
+            if browser is not None:
+                context_close_warning = await self._safe_close_context(browser, call_id=call_id, stage_prefix="web.close_extra_tabs")
+
+        planned = [f"{index}:{kind}:{url}" for index, _, url, kind in tabs_to_close]
+        return "\n".join(
+            [
+                "BRIDGE_CLOSE_EXTRA_TABS_RESULT",
+                f"dry_run={str(dry_run).lower()}",
+                f"keep_latest={keep_latest}",
+                f"pages_total_before={pages_total_before}",
+                f"chatgpt_pages_before={chatgpt_pages_before}",
+                f"about_blank_pages_before={about_blank_pages_before}",
+                f"tabs_to_close={len(tabs_to_close)}",
+                f"tabs_to_close_preview={planned[:20]}",
+                f"closed={closed}",
+                f"pages_total_after={pages_total_after}",
+                f"chatgpt_pages_after={chatgpt_pages_after}",
+                f"about_blank_pages_after={about_blank_pages_after}",
+                f"close_warnings={close_warnings[:10]}",
+                f"context_close_warning={context_close_warning or '<none>'}",
+            ]
+        )
 
     async def chrome_lifecycle_test(
         self,
