@@ -141,8 +141,6 @@ DEFAULT_CONFIG = {
         "close_about_blank": True,
         "close_chatgpt_tabs": True,
         "max_tabs_warning_threshold": 5,
-        "ensure_startup_page": True,
-        "startup_url": "about:blank",
     },
     "api_adapter": {
         "model": "gpt-5.5-pro",

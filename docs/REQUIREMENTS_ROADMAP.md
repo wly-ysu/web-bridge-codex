@@ -28,6 +28,10 @@ The next goal is to turn the MVP into a daily-use tool:
 - GPT-5.5 / Pro budget used deliberately
 - workspace context restored and verified
 
+For the long-term multi-provider architecture covering Doubao, DeepSeek, Xiaomi,
+and other free Web AI providers, see
+[MULTI_WEB_AI_ARCHITECTURE.md](MULTI_WEB_AI_ARCHITECTURE.md).
+
 ## Delivered And Verified
 
 ### 1. Minimal Codex to ChatGPT Web Loop

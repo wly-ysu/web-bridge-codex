@@ -178,8 +178,6 @@ browser_tabs:
   close_about_blank: true
   close_chatgpt_tabs: true
   max_tabs_warning_threshold: 5
-  ensure_startup_page: true
-  startup_url: "about:blank"
 
 api_adapter:
   model: gpt-5.5-pro

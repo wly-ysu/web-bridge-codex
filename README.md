@@ -133,6 +133,10 @@ Force Pro only for high-value deep work:
 
 For the full workflow rules, see [docs/WEB_FIRST_WORKFLOW.md](docs/WEB_FIRST_WORKFLOW.md).
 
+For the future multi-provider design covering Doubao, DeepSeek, Xiaomi, and other
+free Web AI providers, see
+[docs/MULTI_WEB_AI_ARCHITECTURE.md](docs/MULTI_WEB_AI_ARCHITECTURE.md).
+
 ## Web Tech Lead Workflow
 
 Codex is the executor. ChatGPT Web is the Tech Lead.

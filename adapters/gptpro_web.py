@@ -166,11 +166,6 @@ class GPTProWebAdapter:
         ):
             if required not in base_args:
                 base_args.append(required)
-        tab_cfg = self._tab_cleanup_config()
-        startup_url = str(self.browser_tabs_cfg.get("startup_url", "about:blank")) if isinstance(self.browser_tabs_cfg, dict) else "about:blank"
-        if bool(tab_cfg.get("ensure_startup_page", True)) and startup_url and startup_url not in base_args:
-            base_args.append(startup_url)
-
         launch_kwargs: dict[str, object] = {
             "user_data_dir": str(profile_dir),
             "headless": bool(self.cfg.get("headless", False)),
@@ -484,7 +479,6 @@ if ($null -eq $procs) { "[]" } else { $procs }
             "close_about_blank": bool(cfg.get("close_about_blank", True)),
             "close_chatgpt_tabs": bool(cfg.get("close_chatgpt_tabs", True)),
             "max_tabs_warning_threshold": max(1, int(cfg.get("max_tabs_warning_threshold", 5))),
-            "ensure_startup_page": bool(cfg.get("ensure_startup_page", True)),
         }
 
     def _is_cleanup_candidate(self, url: str, cfg: dict[str, object]) -> bool:
@@ -1480,6 +1474,13 @@ if ($null -eq $procs) { "[]" } else { $procs }
                     for record in page_records
                     if record[3] in {"chatgpt", "about_blank"} and id(record[1]) not in kept_ids
                 ]
+                keepalive_preserved = False
+                if page_records and len(tabs_to_close) == len(page_records):
+                    keepalive_candidates = [record for record in page_records if record[3] == "about_blank"] or page_records
+                    keepalive_record = keepalive_candidates[-1]
+                    keepalive_page_id = id(keepalive_record[1])
+                    tabs_to_close = [record for record in tabs_to_close if id(record[1]) != keepalive_page_id]
+                    keepalive_preserved = True
 
                 if not dry_run:
                     for index, page, url, kind in tabs_to_close:
@@ -1524,6 +1525,7 @@ if ($null -eq $procs) { "[]" } else { $procs }
                 f"about_blank_pages_before={about_blank_pages_before}",
                 f"tabs_to_close={len(tabs_to_close)}",
                 f"tabs_to_close_preview={planned[:20]}",
+                f"keepalive_preserved={keepalive_preserved}",
                 f"closed={closed}",
                 f"pages_total_after={pages_total_after}",
                 f"chatgpt_pages_after={chatgpt_pages_after}",
