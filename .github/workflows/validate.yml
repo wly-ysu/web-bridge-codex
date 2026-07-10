@@ -38,3 +38,17 @@ jobs:
           foreach ($name in $forbidden) {
             if (Test-Path -LiteralPath $name) { Write-Host "Local file present and ignored: $name" }
           }
+  validate-unix-delivery:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Validate shared configuration utility
+        run: python -m compileall -q deploy/common/configure_user.py
+      - name: Validate Unix shell syntax
+        run: |
+          for script in scripts/unix/*.sh; do
+            sh -n "$script"
+          done

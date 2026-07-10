@@ -1,7 +1,8 @@
 # Release process
 
 1. Update `VERSION` and `CHANGELOG.md`.
-2. Confirm the `Validate delivery files` GitHub workflow passes on `main`.
+2. Confirm the `Validate delivery files` GitHub workflow passes on `main`, including the
+   Windows and Unix installer syntax checks.
 3. Run the Windows installer on a clean Windows 10/11 user account.
 4. Verify `doctor.ps1`, `verify-install.ps1`, MCP registration, dedicated Chrome sign-in, and the minimal
    `ask_pro_architect` marker call.
