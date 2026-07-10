@@ -11,6 +11,31 @@ It provides three MCP tools:
 - `review_pro_code`
 - `debug_pro_error`
 
+## Windows one-click delivery
+
+Windows 10/11 is the first supported delivery target. The installer creates a
+user-level isolated runtime, a dedicated ChatGPT Chrome profile, a Codex MCP
+registration, and the global Web-First rule. It never copies the normal Chrome profile.
+
+From a repository checkout:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\windows\install.ps1
+```
+
+From the public GitHub repository:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+irm https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.ps1 | iex
+```
+
+Sign in to ChatGPT in the dedicated Chrome window, restart Codex, then call
+`bridge_health_check`. Full instructions, repair, diagnostics, and uninstall are in
+[docs/INSTALL_WINDOWS.md](docs/INSTALL_WINDOWS.md). The platform roadmap is in
+[docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md).
+
 The bridge collects local repository context (git status/diff/files/logs),
 builds compact prompts and sends them to ChatGPT Web through one of:
 
