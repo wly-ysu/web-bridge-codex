@@ -2,7 +2,9 @@
 param(
     [string]$SourceDir = (Resolve-Path (Join-Path $PSScriptRoot "..\..")),
     [switch]$SkipPythonInstall,
-    [switch]$SkipBrowserLaunch
+    [switch]$SkipBrowserLaunch,
+    [switch]$AcceptAiProfile,
+    [switch]$NonInteractive
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,10 +12,32 @@ Import-Module (Join-Path $PSScriptRoot "BridgeInstaller.Common.psm1") -Force
 
 try {
     $paths = Get-BridgePaths
-    foreach ($path in @($paths.Root, $paths.Config, $paths.Logs, $paths.State, $paths.Profile, $paths.Bin)) { Ensure-BridgeDirectory $path }
+    foreach ($path in @($paths.Root, $paths.Config, $paths.Logs, $paths.State, $paths.Bin)) { Ensure-BridgeDirectory $path }
     $python = if ($SkipPythonInstall) { Get-BridgePython } else { Install-BridgePythonIfNeeded }
     if (-not $python) { throw "Python 3.11+ is required. Install it, then re-run this command." }
     $chrome = Install-BridgeChromeIfNeeded
+
+    $profileExists = Test-Path -LiteralPath $paths.Profile
+    if ($profileExists -and -not (Test-Path -LiteralPath $paths.Profile -PathType Container)) {
+        throw "AI Chrome Profile path exists but is not a directory: $($paths.Profile)"
+    }
+    $profileAction = if ($profileExists) { "reuse the existing dedicated profile" } else { "create a new dedicated profile" }
+    Write-Host ""
+    Write-Host "Detected Google Chrome: $chrome"
+    Write-Host "AI Chrome Profile: $($paths.Profile)"
+    Write-Host "Profile action: $profileAction"
+    Write-Host "This Profile is isolated from your normal Chrome data and will never be reset by the installer."
+    if ($NonInteractive) {
+        if (-not $AcceptAiProfile) {
+            throw "Non-interactive installation requires -AcceptAiProfile before a dedicated AI Chrome Profile can be created or reused."
+        }
+    } elseif (-not $AcceptAiProfile) {
+        $answer = Read-Host "Create or use this dedicated AI Chrome Profile? [y/N]"
+        if ($answer -notmatch '^(?i)y(?:es)?$') {
+            throw "AI Chrome Profile creation was cancelled by the user. No browser profile was created or changed."
+        }
+    }
+    if (-not $profileExists) { Ensure-BridgeDirectory $paths.Profile }
 
     Copy-BridgeApplication -SourceDir $SourceDir
     Write-BridgeConfig -SourceDir $SourceDir

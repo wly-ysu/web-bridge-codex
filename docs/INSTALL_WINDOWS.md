@@ -38,8 +38,10 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\windows\install.ps1
 ```
 
-The installer automatically opens a dedicated Chrome profile window. Sign in to ChatGPT
-once in that window, then restart Codex.
+Before creating browser data, the installer displays the detected Chrome path and AI
+Profile path. Enter `y` when it asks for approval to create or reuse that dedicated,
+isolated Profile. It then opens the dedicated Chrome login window. Sign in to ChatGPT once
+in that window, then restart Codex.
 
 ## Verify
 
