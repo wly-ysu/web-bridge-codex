@@ -44,6 +44,16 @@ Sign in to ChatGPT in the dedicated Chrome window, restart Codex, then call
 [docs/INSTALL_WINDOWS.md](docs/INSTALL_WINDOWS.md). The platform roadmap is in
 [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md).
 
+macOS and Linux have preview one-command installers. They require an existing Python 3.11+
+installation, Chrome/Chromium, and Codex; they do not use `sudo` or install system packages:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/unix/bootstrap.sh | sh
+```
+
+See [docs/INSTALL_MACOS.md](docs/INSTALL_MACOS.md) and
+[docs/INSTALL_LINUX.md](docs/INSTALL_LINUX.md) for platform details.
+
 The bridge collects local repository context (git status/diff/files/logs),
 builds compact prompts and sends them to ChatGPT Web through one of:
 
