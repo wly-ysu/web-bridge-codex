@@ -21,24 +21,25 @@ You sign in manually in the dedicated browser window.
 
 ## Install from a local checkout
 
-Open PowerShell in the repository and run:
+On a device that already has Codex, the shortest installation is one command:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass -Force; irm https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.ps1 | iex
+```
+
+The installer uses `winget` to install Python and Google Chrome if missing. If `winget`
+is unavailable, it stops before registering MCP and displays the official download link;
+install the missing program and run the same command again.
+
+To install from a local checkout instead, open PowerShell in the repository and run:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\windows\install.ps1
 ```
 
-## Install from GitHub
-
-For the current public `main` branch:
-
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-irm https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.ps1 | iex
-```
-
-The first launch opens a dedicated Chrome profile. Sign in to ChatGPT in that window,
-then restart Codex.
+The installer automatically opens a dedicated Chrome profile window. Sign in to ChatGPT
+once in that window, then restart Codex.
 
 ## Verify
 

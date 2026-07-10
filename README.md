@@ -31,9 +31,13 @@ Set-ExecutionPolicy -Scope Process Bypass
 From the public GitHub repository:
 
 ```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-irm https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.ps1 | iex
+Set-ExecutionPolicy -Scope Process Bypass -Force; irm https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.ps1 | iex
 ```
+
+On a bare Windows device that already has Codex, this one command installs Python and
+Google Chrome through `winget` when either is missing, then creates the isolated bridge.
+The only manual action is ChatGPT login in the dedicated browser window. See
+[docs/START_HERE_WINDOWS.md](docs/START_HERE_WINDOWS.md).
 
 For a version-pinned installation, download the Windows ZIP and `SHA256SUMS.txt` from a
 GitHub Release, verify the checksum, extract the ZIP, and run

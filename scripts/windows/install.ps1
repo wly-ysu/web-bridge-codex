@@ -13,6 +13,7 @@ try {
     foreach ($path in @($paths.Root, $paths.Config, $paths.Logs, $paths.State, $paths.Profile, $paths.Bin)) { Ensure-BridgeDirectory $path }
     $python = if ($SkipPythonInstall) { Get-BridgePython } else { Install-BridgePythonIfNeeded }
     if (-not $python) { throw "Python 3.11+ is required. Install it, then re-run this command." }
+    $chrome = Install-BridgeChromeIfNeeded
 
     Copy-BridgeApplication -SourceDir $SourceDir
     Write-BridgeConfig -SourceDir $SourceDir
@@ -30,16 +31,14 @@ try {
 
     $registration = Set-BridgeMcpRegistration
     Set-BridgeWebFirstRule
-    $chrome = Find-BridgeChrome
     $version = (Get-Content -LiteralPath (Join-Path $SourceDir "VERSION") -Raw).Trim()
     Write-Host ""
     Write-Host "pro_bridge_codex $version installed for this Windows user."
     Write-Host "MCP registration: $registration"
     Write-Host "Configuration: $($paths.ConfigFile)"
     Write-Host "Chrome profile: $($paths.Profile)"
-    if (-not $chrome) {
-        Write-Warning "Google Chrome was not found. Install Chrome, then run scripts/windows/launch-web-profile.ps1 to sign in."
-    } elseif (-not $SkipBrowserLaunch) {
+    if (-not $SkipBrowserLaunch) {
+        Write-Host "Opening the dedicated AI Chrome window now. Sign in to ChatGPT once in that window."
         & (Join-Path $PSScriptRoot "launch-web-profile.ps1")
     }
     Write-Host "Restart Codex after signing in to ChatGPT in the dedicated browser profile."

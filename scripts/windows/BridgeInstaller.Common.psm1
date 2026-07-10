@@ -70,6 +70,25 @@ function Find-BridgeChrome {
     return $null
 }
 
+function Install-BridgeChromeIfNeeded {
+    $chrome = Find-BridgeChrome
+    if ($chrome) { return $chrome }
+    $winget = Get-Command winget -ErrorAction SilentlyContinue
+    if (-not $winget) {
+        throw "Google Chrome is required. Download and install it from https://www.google.com/chrome/ , then run the same one-click installer again."
+    }
+    Write-Host "Google Chrome was not found. Installing it with winget..."
+    & $winget.Source install --id Google.Chrome -e --accept-package-agreements --accept-source-agreements
+    if ($LASTEXITCODE -ne 0) {
+        throw "winget could not install Google Chrome (exit $LASTEXITCODE). Install it from https://www.google.com/chrome/ , then run the same installer again."
+    }
+    $chrome = Find-BridgeChrome
+    if (-not $chrome) {
+        throw "Google Chrome was installed but could not be located. Restart Windows or install it from https://www.google.com/chrome/ , then re-run the installer."
+    }
+    return $chrome
+}
+
 function ConvertTo-BridgeTomlString([string]$Value) {
     $normalized = $Value.Replace("\\", "/").Replace('"', '\"')
     return '"' + $normalized + '"'
@@ -159,4 +178,4 @@ function Write-BridgeConfig([string]$SourceDir) {
     Set-Content -LiteralPath $paths.ConfigFile -Value $content -Encoding utf8
 }
 
-Export-ModuleMember -Function Get-BridgePaths, Ensure-BridgeDirectory, Backup-BridgeFile, Get-BridgePython, Install-BridgePythonIfNeeded, Find-BridgeChrome, Set-BridgeMcpRegistration, Set-BridgeWebFirstRule, Copy-BridgeApplication, Write-BridgeConfig
+Export-ModuleMember -Function Get-BridgePaths, Ensure-BridgeDirectory, Backup-BridgeFile, Get-BridgePython, Install-BridgePythonIfNeeded, Find-BridgeChrome, Install-BridgeChromeIfNeeded, Set-BridgeMcpRegistration, Set-BridgeWebFirstRule, Copy-BridgeApplication, Write-BridgeConfig
