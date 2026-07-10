@@ -6,9 +6,12 @@
    `ask_pro_architect` marker call.
 4. Confirm the repository has no Chrome profile, log, token, cookie, venv, or local
    configuration files staged.
-5. Create an annotated Git tag such as `v0.2.0` and publish a GitHub Release.
-6. Attach source or a packaged archive, a SHA-256 checksum, release notes, known issues,
-   upgrade notes, and rollback instructions.
+5. Create and push an annotated Git tag such as `v0.2.0`.
+6. The `Release Windows package` GitHub workflow builds
+   `pro_bridge_codex-windows-x64-v<version>.zip`, generates `SHA256SUMS.txt`, and creates
+   the GitHub Release with generated notes.
+7. Add known issues, upgrade notes, and rollback instructions before marking the Release
+   stable.
 
 Before the first stable release, test the installer on a device that was not used for
 development. Windows is the only supported installation target in this release line.

@@ -35,6 +35,10 @@ Set-ExecutionPolicy -Scope Process Bypass
 irm https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.ps1 | iex
 ```
 
+For a version-pinned installation, download the Windows ZIP and `SHA256SUMS.txt` from a
+GitHub Release, verify the checksum, extract the ZIP, and run
+`scripts\windows\install.ps1`.
+
 Sign in to ChatGPT in the dedicated Chrome window, restart Codex, then call
 `bridge_health_check`. Full instructions, repair, diagnostics, and uninstall are in
 [docs/INSTALL_WINDOWS.md](docs/INSTALL_WINDOWS.md). The platform roadmap is in
