@@ -12,6 +12,10 @@ It creates an isolated Python runtime, installs the bridge dependencies, creates
 dedicated Chrome profile, registers the `pro_bridge_codex` MCP server, and installs a
 managed Web-First rule in `%USERPROFILE%\.codex\AGENTS.md`.
 
+The managed rule makes Web Lead the default for every natural-language Codex request.
+Explicit deterministic local work (for example a specified Git command, file read, build,
+or test) stays local, and Web failures cannot cause an infinite route loop.
+
 It never copies the default Chrome profile, passwords, cookies, or ChatGPT login data.
 You sign in manually in the dedicated browser window.
 

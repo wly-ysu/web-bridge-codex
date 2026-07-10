@@ -2,9 +2,10 @@
 
 ## Highest Project Rule
 
-All project-related Codex Q&A must interact with Web GPT through MCP first.
+All natural-language Codex requests must interact with Web GPT through MCP first unless
+they are explicitly deterministic local operations.
 
-For any project-related question, requirement, architecture discussion, code
+For any natural-language question, requirement, architecture discussion, code
 change, debugging request, review request, validation strategy, or user
 correction, Codex must call:
 
@@ -86,6 +87,17 @@ Codex may execute directly only when the user starts the request with:
 ```text
 本地执行：
 ```
+
+Other deterministic local operations, such as an explicitly specified file read, Git
+status, build, or test command, may run locally as execution work. This keeps the rule
+from blocking Codex's executor role.
+
+## Routing Safety Guards
+
+- Web MCP output is never automatically routed back into Web MCP.
+- A single user turn may make one automatic Web Lead call at most.
+- When Web MCP times out, is unavailable, or fails authentication, Codex retries once at
+  most, then proceeds locally with stated assumptions rather than blocking indefinitely.
 
 Examples:
 

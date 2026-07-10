@@ -17,6 +17,10 @@ Windows 10/11 is the first supported delivery target. The installer creates a
 user-level isolated runtime, a dedicated ChatGPT Chrome profile, a Codex MCP
 registration, and the global Web-First rule. It never copies the normal Chrome profile.
 
+The global rule defaults every natural-language Codex request to the Web Lead. It keeps
+explicit deterministic local execution local and limits automatic Web routing to once per
+turn to prevent recursive MCP calls.
+
 From a repository checkout:
 
 ```powershell

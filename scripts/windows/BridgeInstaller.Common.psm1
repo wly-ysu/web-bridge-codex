@@ -120,11 +120,13 @@ function Set-BridgeWebFirstRule([switch]$Remove) {
 <!-- pro_bridge_codex:web-first:start -->
 # pro_bridge_codex Web-First Rule
 
-For project-related questions, requirements, architecture, implementation, review,
-debugging, validation, and project decisions, call `route_to_web_lead` first. If it is
-unavailable, call `ask_pro_architect`. Use the returned Web Lead plan before making
-project decisions or editing code. Only skip this route when the user starts with
-`本地执行：`.
+Default all natural-language requests to `route_to_web_lead` first. If it is unavailable,
+use `ask_pro_architect`. Use the returned Web Lead plan before making decisions or editing
+code. Do not route an explicit deterministic local operation, a request beginning with
+`本地执行：`, or any content that came from Web MCP / is already Web-reviewed. Limit automatic
+Web routing to once per user turn. If Web MCP times out, is unavailable, or authentication
+fails, retry once at most, then continue locally with stated assumptions; never block or
+recurse indefinitely.
 <!-- pro_bridge_codex:web-first:end -->
 '@
         $content = if ([string]::IsNullOrWhiteSpace($content)) { $managedRule.TrimEnd() } else { $content.TrimEnd() + [Environment]::NewLine + [Environment]::NewLine + $managedRule.TrimEnd() }

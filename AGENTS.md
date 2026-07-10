@@ -2,13 +2,14 @@
 
 # Highest Project Rule
 
-All project-related Codex Q&A must interact with the Web GPT through MCP first.
+All natural-language Codex requests must interact with the Web GPT through MCP first
+unless they are explicitly deterministic local operations.
 
 This is the highest project-level workflow rule for `pro_bridge_codex`.
 
-For any project-related question, requirement, architecture discussion, code change,
-debugging request, review request, test strategy, implementation plan, or user
-correction, Codex must first call:
+For any natural-language question, requirement, architecture discussion, code change,
+debugging request, review request, test strategy, implementation plan, correction, or
+decision request, Codex must first call:
 
 `route_to_web_lead`
 
@@ -16,7 +17,7 @@ If `route_to_web_lead` is unavailable, Codex must call:
 
 `ask_pro_architect`
 
-Codex must not answer project questions directly before the Web GPT / Web Lead
+Codex must not answer these requests directly before the Web GPT / Web Lead
 returns a plan, clarification, review, or analysis.
 
 The only exception is when the user explicitly starts the message with:
@@ -25,6 +26,16 @@ The only exception is when the user explicitly starts the message with:
 
 In that case, Codex may perform the requested local action without first calling
 Web GPT.
+
+## Routing Safety Guards
+
+- Never route content that originated from a Web MCP return or is already marked as
+  Web-reviewed; this prevents Web-to-Codex-to-Web recursion.
+- A single user turn may make at most one automatic Web Lead call.
+- Deterministic local operations such as explicit shell commands, file reads, Git status,
+  builds, and tests may execute locally without a Web call.
+- If Web MCP times out, is unavailable, or authentication fails, retry at most once, then
+  continue locally with clearly stated assumptions instead of blocking or retrying forever.
 
 # Web-First Mandatory Workflow
 
@@ -40,7 +51,7 @@ Codex must not independently answer project-related questions before routing the
 
 ## Default Routing
 
-For any project-related user request written in natural language, Codex must first call:
+For any user request written in natural language, Codex must first call:
 
 `route_to_web_lead`
 
