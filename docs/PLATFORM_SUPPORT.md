@@ -10,5 +10,9 @@ The Python bridge, YAML configuration, MCP tool contract, and Web-First rule are
 platform-neutral. Only installation, browser discovery, paths, and process handling are
 platform-specific.
 
+All platforms use the same dedicated-Profile contract: display the detected browser path
+and the proposed AI Profile path, default to refusal, then create or reuse the Profile only
+after explicit user approval. No installer reads or copies the ordinary browser profile.
+
 macOS and Linux installers are available but remain preview support until each receives a
 clean-machine installation and ChatGPT Web end-to-end test.

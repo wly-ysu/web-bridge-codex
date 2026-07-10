@@ -3,6 +3,19 @@ set -eu
 
 SOURCE_DIR=${SOURCE_DIR:-"$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"}
 SKIP_BROWSER_LAUNCH=${SKIP_BROWSER_LAUNCH:-false}
+ACCEPT_AI_PROFILE=${ACCEPT_AI_PROFILE:-false}
+NON_INTERACTIVE=${NON_INTERACTIVE:-false}
+CHROME_PATH=${CHROME_PATH:-}
+
+for argument in "$@"; do
+  case "$argument" in
+    --accept-ai-profile) ACCEPT_AI_PROFILE=true ;;
+    --non-interactive) NON_INTERACTIVE=true ;;
+    --no-open-browser) SKIP_BROWSER_LAUNCH=true ;;
+    --chrome-path=*) CHROME_PATH=${argument#--chrome-path=} ;;
+    *) printf '%s\n' "Unknown option: $argument" >&2; exit 1 ;;
+  esac
+done
 
 fail() { printf '%s\n' "Installation failed: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"; }
@@ -30,6 +43,11 @@ PY
 "$PYTHON" -m venv --help >/dev/null 2>&1 || fail "Python venv support is required."
 
 find_chrome() {
+  if [ -n "$CHROME_PATH" ]; then
+    [ -f "$CHROME_PATH" ] && [ -x "$CHROME_PATH" ] || fail "--chrome-path is not an executable file: $CHROME_PATH"
+    printf '%s\n' "$CHROME_PATH"
+    return
+  fi
   if [ "$(uname -s)" = Darwin ]; then
     for path in \
       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
@@ -45,7 +63,12 @@ find_chrome() {
   return 1
 }
 
-CHROME=$(find_chrome) || fail "Google Chrome or Chromium was not found. Install it, then run this installer again."
+if ! CHROME=$(find_chrome); then
+  if [ "$(uname -s)" = Darwin ]; then
+    fail "Google Chrome or Chromium was not found. Install Google Chrome from https://www.google.com/chrome/ , then run this installer again or pass --chrome-path=<path>."
+  fi
+  fail "Google Chrome or Chromium was not found. Install Google Chrome from https://www.google.com/chrome/ , then run this installer again or pass --chrome-path=<path>."
+fi
 [ -d "$HOME/.codex" ] || fail "Codex configuration directory ~/.codex was not found. Install and open Codex first."
 [ -f "$SOURCE_DIR/server.py" ] || fail "Source directory does not contain server.py: $SOURCE_DIR"
 
@@ -60,7 +83,30 @@ STAGE=$(mktemp -d "${TMPDIR:-/tmp}/pro_bridge_codex.XXXXXX")
 cleanup() { rm -rf "$STAGE"; }
 trap cleanup EXIT INT TERM
 
-mkdir -p "$ROOT" "$LOG_ROOT" "$ROOT/config" "$PROFILE" "$BIN"
+mkdir -p "$ROOT" "$LOG_ROOT" "$ROOT/config" "$BIN"
+if [ -e "$PROFILE" ] && [ ! -d "$PROFILE" ]; then
+  fail "AI Chrome Profile path exists but is not a directory: $PROFILE"
+fi
+if [ -d "$PROFILE" ]; then
+  PROFILE_ACTION=reuse
+else
+  PROFILE_ACTION=create
+fi
+printf '%s\n' "" "Chrome executable: $CHROME" "AI Profile path:   $PROFILE" "Profile action:    $PROFILE_ACTION" "The default Chrome profile will not be copied or modified."
+if [ "$NON_INTERACTIVE" = true ]; then
+  [ "$ACCEPT_AI_PROFILE" = true ] || fail "Non-interactive installation requires --accept-ai-profile before a dedicated AI Chrome Profile can be created or reused."
+elif [ "$ACCEPT_AI_PROFILE" != true ]; then
+  [ -r /dev/tty ] && [ -w /dev/tty ] || fail "No interactive terminal is available. Re-run with --non-interactive --accept-ai-profile to explicitly authorize the dedicated AI Profile."
+  printf '%s' "Create or reuse this dedicated AI Chrome Profile and open ChatGPT login? [y/N] " > /dev/tty
+  IFS= read -r answer < /dev/tty || answer=""
+  case "$answer" in
+    y|Y|yes|YES|Yes) ;;
+    *) fail "AI Chrome Profile creation was cancelled by the user. No browser profile was created or changed." ;;
+  esac
+fi
+if [ "$PROFILE_ACTION" = create ]; then
+  mkdir -p "$PROFILE" || fail "Could not create AI Chrome Profile directory: $PROFILE"
+fi
 mkdir -p "$STAGE/app"
 tar -C "$SOURCE_DIR" --exclude=.git --exclude=__pycache__ --exclude=logs --exclude=runtime --exclude=dist --exclude=packaging --exclude=.gptpro-browser --exclude=browser_data --exclude=config.yaml --exclude=bridge_mcp.log --exclude=bridge_launch_matrix.log -cf - . | tar -C "$STAGE/app" -xf -
 rm -rf "$APP"
@@ -100,5 +146,5 @@ chmod 700 "$BIN/launch-web-profile"
 printf '%s\n' "UNIX_INSTALL_OK" "install_root=$ROOT" "chrome_profile=$PROFILE" "chrome=$CHROME"
 if [ "$SKIP_BROWSER_LAUNCH" != true ]; then
   "$BIN/launch-web-profile" >/dev/null 2>&1 &
-  printf '%s\n' "A dedicated browser profile was opened. Sign in to ChatGPT, then restart Codex."
+  printf '%s\n' "A dedicated AI browser profile was opened. Sign in to ChatGPT once, then restart Codex."
 fi

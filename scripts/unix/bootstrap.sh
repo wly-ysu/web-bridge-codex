@@ -12,4 +12,4 @@ curl --fail --location "https://github.com/$REPOSITORY/archive/refs/heads/$REF.t
 tar -xzf "$TEMP/source.tar.gz" -C "$TEMP"
 SOURCE=$(find "$TEMP" -mindepth 1 -maxdepth 1 -type d -name 'web-bridge-codex-*' | head -n 1)
 [ -n "$SOURCE" ] || { printf '%s\n' "Downloaded archive did not contain the bridge source." >&2; exit 1; }
-SOURCE_DIR="$SOURCE" sh "$SOURCE/scripts/unix/install.sh"
+SOURCE_DIR="$SOURCE" sh "$SOURCE/scripts/unix/install.sh" "$@"
