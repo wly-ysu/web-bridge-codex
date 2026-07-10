@@ -1,0 +1,40 @@
+name: Validate delivery files
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Validate Python syntax
+        shell: pwsh
+        run: |
+          python -m compileall -q server.py adapters core tools
+      - name: Validate PowerShell syntax
+        shell: pwsh
+        run: |
+          $errors = @()
+          Get-ChildItem scripts/windows -Filter *.ps1 -File | ForEach-Object {
+            $tokens = $null
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$parseErrors) | Out-Null
+            $errors += $parseErrors
+          }
+          if ($errors.Count -gt 0) {
+            $errors | Format-List | Out-String | Write-Error
+            exit 1
+          }
+      - name: Check release exclusions
+        shell: pwsh
+        run: |
+          $forbidden = @("config.yaml", "bridge_mcp.log", "bridge_launch_matrix.log")
+          foreach ($name in $forbidden) {
+            if (Test-Path -LiteralPath $name) { Write-Host "Local file present and ignored: $name" }
+          }
