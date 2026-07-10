@@ -1,5 +1,32 @@
 # Web-First Execution Workflow
 
+## Highest Project Rule
+
+All project-related Codex Q&A must interact with Web GPT through MCP first.
+
+For any project-related question, requirement, architecture discussion, code
+change, debugging request, review request, validation strategy, or user
+correction, Codex must call:
+
+```text
+route_to_web_lead
+```
+
+If unavailable, Codex must call:
+
+```text
+ask_pro_architect
+```
+
+Codex must not answer project questions directly before Web GPT returns a plan,
+analysis, review, or clarification.
+
+The only direct-local exception is the explicit prefix:
+
+```text
+本地执行：
+```
+
 ## Purpose
 
 `pro_bridge_codex` is a Web-First Codex workflow.

@@ -1,5 +1,31 @@
 # pro_bridge_codex Agent Rules
 
+# Highest Project Rule
+
+All project-related Codex Q&A must interact with the Web GPT through MCP first.
+
+This is the highest project-level workflow rule for `pro_bridge_codex`.
+
+For any project-related question, requirement, architecture discussion, code change,
+debugging request, review request, test strategy, implementation plan, or user
+correction, Codex must first call:
+
+`route_to_web_lead`
+
+If `route_to_web_lead` is unavailable, Codex must call:
+
+`ask_pro_architect`
+
+Codex must not answer project questions directly before the Web GPT / Web Lead
+returns a plan, clarification, review, or analysis.
+
+The only exception is when the user explicitly starts the message with:
+
+`本地执行：`
+
+In that case, Codex may perform the requested local action without first calling
+Web GPT.
+
 # Web-First Mandatory Workflow
 
 ## Core Principle
@@ -10,13 +36,15 @@ Web Lead is the planner, requirement analyst, architect, reviewer, and debugger.
 
 Codex must not independently decide implementation strategy for natural language requests.
 
+Codex must not independently answer project-related questions before routing them to Web GPT through MCP.
+
 ## Default Routing
 
-For any user request written in natural language, Codex should first call:
+For any project-related user request written in natural language, Codex must first call:
 
 `route_to_web_lead`
 
-If `route_to_web_lead` is unavailable, call:
+If `route_to_web_lead` is unavailable, Codex must call:
 
 `ask_pro_architect`
 
@@ -33,6 +61,9 @@ Examples:
 - `本地执行：打开 README.md`
 
 Without this prefix, route to Web Lead first.
+
+Do not answer project questions directly before `route_to_web_lead` or fallback
+`ask_pro_architect` returns.
 
 ## Requirement Refinement
 

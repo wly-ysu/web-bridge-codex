@@ -470,6 +470,42 @@ if ($null -eq $procs) { "[]" } else { $procs }
             self._set_stage(f"{stage_prefix}.close.warning", call_id=call_id or "<none>", error=close_error)
             return False, close_error
 
+    async def _safe_prepare_keepalive_page(self, page, call_id: str | None = None, stage_prefix: str = "web.page") -> tuple[bool, str | None]:
+        if page is None:
+            return False, None
+        try:
+            if page.is_closed():
+                return False, None
+            await page.goto("about:blank", wait_until="domcontentloaded", timeout=5000)
+            logging.info("[TAB_STATE] call_id=%s fresh_page_kept_as_about_blank=true", call_id or "<none>")
+            self._set_stage(f"{stage_prefix}.keepalive.done", call_id=call_id or "<none>", fresh_page_kept_as_about_blank=True)
+            return True, None
+        except Exception as exc:
+            keepalive_error = f"{type(exc).__name__}: {exc}"
+            self._log("warning", "fresh page keepalive prepare failed", {"call_id": call_id or "<none>", "stage_prefix": stage_prefix, "error": keepalive_error})
+            self._set_stage(f"{stage_prefix}.keepalive.warning", call_id=call_id or "<none>", error=keepalive_error)
+            return False, keepalive_error
+
+    async def _safe_ensure_keepalive_page(self, context, call_id: str | None = None, stage_prefix: str = "web") -> tuple[bool, str | None]:
+        try:
+            for page in context.pages:
+                try:
+                    if not page.is_closed() and self._tab_kind(page.url) == "about_blank":
+                        self._set_stage(f"{stage_prefix}.keepalive.exists", call_id=call_id or "<none>")
+                        return True, None
+                except Exception:
+                    continue
+            page = await context.new_page()
+            await page.goto("about:blank", wait_until="domcontentloaded", timeout=5000)
+            logging.info("[TAB_STATE] call_id=%s ensured_about_blank_keepalive=true", call_id or "<none>")
+            self._set_stage(f"{stage_prefix}.keepalive.created", call_id=call_id or "<none>", ensured_about_blank_keepalive=True)
+            return True, None
+        except Exception as exc:
+            keepalive_error = f"{type(exc).__name__}: {exc}"
+            self._log("warning", "ensure keepalive page failed", {"call_id": call_id or "<none>", "stage_prefix": stage_prefix, "error": keepalive_error})
+            self._set_stage(f"{stage_prefix}.keepalive.warning", call_id=call_id or "<none>", error=keepalive_error)
+            return False, keepalive_error
+
     def _tab_cleanup_config(self) -> dict[str, object]:
         cfg = self.browser_tabs_cfg if isinstance(self.browser_tabs_cfg, dict) else {}
         return {
@@ -495,6 +531,11 @@ if ($null -eq $procs) { "[]" } else { $procs }
         page_records: list[tuple[int, object, str, str]] = []
         for index, page in enumerate(pages):
             try:
+                if page.is_closed():
+                    continue
+            except Exception:
+                continue
+            try:
                 url = page.url
             except Exception:
                 url = ""
@@ -511,7 +552,7 @@ if ($null -eq $procs) { "[]" } else { $procs }
             if self._is_cleanup_candidate(record[2], cfg) and id(record[1]) not in kept_page_ids
         ]
         keepalive_preserved = False
-        if phase.startswith("before_") and page_records and len(to_close) == len(page_records):
+        if page_records and len(to_close) == len(page_records):
             keepalive_record = about_blank_records[-1] if about_blank_records else to_close[-1]
             keepalive_page_id = id(keepalive_record[1])
             to_close = [record for record in to_close if id(record[1]) != keepalive_page_id]
@@ -543,10 +584,18 @@ if ($null -eq $procs) { "[]" } else { $procs }
         for index, page, url, kind in to_close:
             try:
                 if not page.is_closed():
-                    await page.close()
+                    if kind == "chatgpt":
+                        try:
+                            await page.goto("about:blank", wait_until="domcontentloaded", timeout=3000)
+                        except Exception:
+                            pass
+                    await page.close(run_before_unload=False)
                     closed += 1
             except Exception as exc:
                 warnings.append(f"{index}:{kind}:{type(exc).__name__}:{exc}")
+
+        if closed:
+            await asyncio.sleep(1.0)
 
         remaining_urls = []
         for page in context.pages:
@@ -1037,9 +1086,10 @@ if ($null -eq $procs) { "[]" } else { $procs }
                 error_text = self._raise_web_error("web.query", exc)
         finally:
             if page is not None:
-                self._log("info", "close fresh page", {"call_id": call_id})
-                _, page_close_error = await self._safe_close_page(page, call_id=call_id, stage_prefix="web.query.page")
+                self._log("info", "prepare fresh page as keepalive", {"call_id": call_id})
+                _, page_close_error = await self._safe_prepare_keepalive_page(page, call_id=call_id, stage_prefix="web.query.page")
             if browser is not None:
+                await self._safe_ensure_keepalive_page(browser, call_id=call_id, stage_prefix="web.query")
                 if self._tab_cleanup_config()["cleanup_after_query"]:
                     await self._safe_cleanup_browser_tabs(browser, call_id, phase="after_query")
                 self._log("info", "close context", {"call_id": call_id})
@@ -1190,6 +1240,7 @@ if ($null -eq $procs) { "[]" } else { $procs }
         result_text: str | None = None
         error_text: str | None = None
         fresh_page_closed = False
+        fresh_page_kept_as_keepalive = False
         try:
             self._set_stage("web.smoke_test.launch_start", call_id=call_id)
             from playwright.async_api import async_playwright
@@ -1302,8 +1353,10 @@ if ($null -eq $procs) { "[]" } else { $procs }
             )
         finally:
             if page is not None:
-                fresh_page_closed, page_close_error = await self._safe_close_page(page, call_id=call_id, stage_prefix="web.smoke_test.page")
+                fresh_page_kept_as_keepalive, page_close_error = await self._safe_prepare_keepalive_page(page, call_id=call_id, stage_prefix="web.smoke_test.page")
+                fresh_page_closed = False
             if browser is not None:
+                await self._safe_ensure_keepalive_page(browser, call_id=call_id, stage_prefix="web.smoke_test")
                 if self._tab_cleanup_config()["cleanup_after_query"]:
                     await self._safe_cleanup_browser_tabs(browser, call_id, phase="after_smoke_test")
                 stage = "browser.close"
@@ -1320,6 +1373,7 @@ if ($null -eq $procs) { "[]" } else { $procs }
             else:
                 lines.append("close_warning_type=close_error")
             lines.append(f"fresh_page_closed={fresh_page_closed}")
+            lines.append(f"fresh_page_kept_as_keepalive={fresh_page_kept_as_keepalive}")
             lines.append(f"fresh_page_close_warning={page_close_error or '<none>'}")
             lines.append(f"close_warning={close_error or '<none>'}")
             if preflight.get("stale_lock_suspected"):
@@ -1341,6 +1395,7 @@ if ($null -eq $procs) { "[]" } else { $procs }
             result_lines = [
                 result_text,
                 f"fresh_page_closed={fresh_page_closed}",
+                f"fresh_page_kept_as_keepalive={fresh_page_kept_as_keepalive}",
                 f"fresh_page_close_warning={page_close_error or '<none>'}",
             ]
             if close_error:
@@ -1386,6 +1441,11 @@ if ($null -eq $procs) { "[]" } else { $procs }
                 browser, _, _ = await self._launch_context(p, call_id, preflight, user_data_dir_override=user_data_dir_override)
                 urls = []
                 for page in browser.pages:
+                    try:
+                        if page.is_closed():
+                            continue
+                    except Exception:
+                        continue
                     try:
                         urls.append(page.url)
                     except Exception:
@@ -1457,6 +1517,11 @@ if ($null -eq $procs) { "[]" } else { $procs }
                 page_records: list[tuple[int, object, str, str]] = []
                 for index, page in enumerate(browser.pages):
                     try:
+                        if page.is_closed():
+                            continue
+                    except Exception:
+                        continue
+                    try:
                         url = page.url
                     except Exception:
                         url = ""
@@ -1486,10 +1551,18 @@ if ($null -eq $procs) { "[]" } else { $procs }
                     for index, page, url, kind in tabs_to_close:
                         try:
                             if not page.is_closed():
-                                await page.close()
+                                if kind == "chatgpt":
+                                    try:
+                                        await page.goto("about:blank", wait_until="domcontentloaded", timeout=3000)
+                                    except Exception:
+                                        pass
+                                await page.close(run_before_unload=False)
                                 closed += 1
                         except Exception as exc:
                             close_warnings.append(f"{index}:{kind}:{type(exc).__name__}:{exc}")
+
+                    if closed:
+                        await asyncio.sleep(1.0)
 
                 remaining_urls = []
                 for page in browser.pages:
