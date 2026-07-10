@@ -40,6 +40,21 @@ function Get-BridgePython {
     if ($python) { return $python.Source }
     $py = Get-Command py -ErrorAction SilentlyContinue
     if ($py) { return $py.Source }
+    $roots = @(
+        (Join-Path $env:LOCALAPPDATA "Programs\Python"),
+        (Join-Path $env:ProgramFiles "Python"),
+        (Join-Path ${env:ProgramFiles(x86)} "Python")
+    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+    foreach ($root in $roots) {
+        $candidate = Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending |
+            ForEach-Object {
+                $exe = Join-Path $_.FullName "python.exe"
+                if (Test-Path -LiteralPath $exe) { $exe }
+            } |
+            Select-Object -First 1
+        if ($candidate) { return $candidate }
+    }
     return $null
 }
 
