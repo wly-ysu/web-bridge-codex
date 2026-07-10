@@ -2091,15 +2091,31 @@ if ($null -eq $procs) { "[]" } else { $procs }
         last_assistant_text_before: str,
         expected_marker: str | None,
     ) -> tuple[str | None, str | None]:
-        max_wall_time = int(self.cfg.get("profiles", {}).get("fast", {}).get("max_response_wall_time_seconds", 60))
-        stable_seconds = int(self.cfg.get("profiles", {}).get("fast", {}).get("text_stable_seconds", 2))
-        start = time.time()
-        last_text = ""
-        last_change = time.time()
+        wait_cfg = self.cfg.get("response_wait", {})
+        if not isinstance(wait_cfg, dict):
+            wait_cfg = {}
+        first_response_timeout = max(1, int(wait_cfg.get("first_response_timeout_seconds", 60)))
+        no_progress_timeout = max(1, int(wait_cfg.get("no_progress_timeout_seconds", 30)))
+        max_wall_time = max(first_response_timeout, int(wait_cfg.get("max_response_wall_time_seconds", 600)))
+        poll_interval_ms = max(250, int(float(wait_cfg.get("poll_interval_seconds", 1)) * 1000))
+        stable_seconds = max(1, int(wait_cfg.get("completion_stable_seconds", 2)))
+        start = time.monotonic()
+        last_text = last_assistant_text_before.strip()
+        last_progress_at = start
+        response_started = False
         assistant_count_current = assistant_count_before
         body_preview = ""
 
-        while time.time() - start < max_wall_time:
+        self._set_stage(
+            "web.response.wait.policy",
+            call_id=call_id,
+            first_response_timeout_seconds=first_response_timeout,
+            no_progress_timeout_seconds=no_progress_timeout,
+            max_response_wall_time_seconds=max_wall_time,
+            poll_interval_ms=poll_interval_ms,
+        )
+
+        while time.monotonic() - start < max_wall_time:
             state = await self._dump_response_debug_state(page, call_id, assistant_selectors, user_selectors)
             assistant_count_current = int(state.get("assistant_count") or 0)
             current_text = await self._last_node_text(page, assistant_selectors)
@@ -2108,13 +2124,26 @@ if ($null -eq $procs) { "[]" } else { $procs }
                 bool(current_text) and current_text != last_assistant_text_before
             )
             generating = bool(state.get("generating_indicator_found"))
+            now = time.monotonic()
+            elapsed_seconds = int(now - start)
+            text_changed = current_text != last_text
+            if text_changed:
+                last_text = current_text
+                last_progress_at = now
+            if new_assistant:
+                response_started = True
             logging.info(
-                "[RESPONSE_WAIT] call_id=%s assistant_count_before=%s assistant_count_current=%s new_assistant_detected=%s current_text_len=%s",
+                "[RESPONSE_WAIT] call_id=%s elapsed_seconds=%s assistant_count_before=%s assistant_count_current=%s new_assistant_detected=%s response_started=%s generating=%s current_text_len=%s text_changed=%s seconds_since_progress=%s",
                 call_id,
+                elapsed_seconds,
                 assistant_count_before,
                 assistant_count_current,
                 new_assistant,
+                response_started,
+                generating,
                 len(current_text),
+                text_changed,
+                int(now - last_progress_at),
             )
 
             if expected_marker and expected_marker in current_text:
@@ -2126,33 +2155,67 @@ if ($null -eq $procs) { "[]" } else { $procs }
                 self._flush_log_handlers()
                 return current_text, None
 
-            if current_text != last_text:
-                last_text = current_text
-                last_change = time.time()
-
-            if new_assistant and current_text.strip() and not generating and time.time() - last_change >= stable_seconds:
+            if response_started and current_text.strip() and not generating and now - last_progress_at >= stable_seconds:
                 logging.info(
-                    "[WATCHDOG] call_id=%s expected_marker=%s expected_marker_seen=false fast_profile_stable_return=true",
+                    "[WATCHDOG] call_id=%s expected_marker=%s expected_marker_seen=false response_completed=true",
                     call_id,
                     expected_marker or "<none>",
                 )
                 self._flush_log_handlers()
                 return current_text.strip(), None
 
-            await page.wait_for_timeout(1000)
+            if not response_started and not generating and now - start >= first_response_timeout:
+                error = self._raise_web_error(
+                    "response.wait.first_response_timeout",
+                    "no_assistant_response_started",
+                    {
+                        "assistant_count_before": assistant_count_before,
+                        "assistant_count_after": assistant_count_current,
+                        "first_response_timeout_seconds": first_response_timeout,
+                        "body_preview": body_preview,
+                    },
+                )
+                return None, error
+
+            if response_started and now - last_progress_at >= no_progress_timeout:
+                if current_text.strip() and not generating:
+                    logging.info(
+                        "[WATCHDOG] call_id=%s response_completed_after_no_progress=true no_progress_timeout_seconds=%s",
+                        call_id,
+                        no_progress_timeout,
+                    )
+                    self._flush_log_handlers()
+                    return current_text.strip(), None
+                error = self._raise_web_error(
+                    "response.wait.no_progress_timeout",
+                    "assistant_response_stalled",
+                    {
+                        "assistant_count_before": assistant_count_before,
+                        "assistant_count_after": assistant_count_current,
+                        "no_progress_timeout_seconds": no_progress_timeout,
+                        "generating": generating,
+                        "current_text_length": len(current_text),
+                        "body_preview": body_preview,
+                    },
+                )
+                return None, error
+
+            await page.wait_for_timeout(poll_interval_ms)
 
         logging.info(
-            "[WATCHDOG] call_id=%s expected_marker=%s expected_marker_seen=false fast_profile_timeout=true",
+            "[WATCHDOG] call_id=%s expected_marker=%s expected_marker_seen=false response_total_timeout=true max_response_wall_time_seconds=%s",
             call_id,
             expected_marker or "<none>",
+            max_wall_time,
         )
         error = self._raise_web_error(
-            "response.wait",
-            "no_assistant_response_detected",
+            "response.wait.total_timeout",
+            "assistant_response_exceeded_max_wall_time",
             {
-                "profile": "fast",
                 "assistant_count_before": assistant_count_before,
                 "assistant_count_after": assistant_count_current,
+                "response_started": response_started,
+                "max_response_wall_time_seconds": max_wall_time,
                 "body_preview": body_preview,
             },
         )

@@ -247,6 +247,14 @@ Users can explicitly request:
 - `profile=deep_lite`
 - `profile=pro_deep`
 
+## Web response waiting policy
+
+The bridge uses a progress-aware response wait state machine so a long ChatGPT Web answer
+is not treated as a timeout while its text continues to grow. Defaults are: first response
+within 60 seconds, no text progress for 30 seconds before a stall is declared, 600 seconds
+maximum response time, and a one-second poll interval. Configure these values under
+`web_adapter.response_wait` in `config.yaml`.
+
 ## 3) Environment variables
 
 - `GPTPRO_ADAPTER` : `web` (default) or `api`

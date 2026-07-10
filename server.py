@@ -133,6 +133,13 @@ DEFAULT_CONFIG = {
             "article",
             "div[data-testid='markdown']",
         ],
+        "response_wait": {
+            "first_response_timeout_seconds": 60,
+            "no_progress_timeout_seconds": 30,
+            "max_response_wall_time_seconds": 600,
+            "poll_interval_seconds": 1,
+            "completion_stable_seconds": 2,
+        },
     },
     "browser_tabs": {
         "cleanup_before_query": True,
@@ -150,8 +157,8 @@ DEFAULT_CONFIG = {
     },
     "memory_file": ".bridge_memory.json",
     "runtime": {
-        "tool_timeout_seconds": 180,
-        "web_query_timeout_seconds": 150,
+        "tool_timeout_seconds": 660,
+        "web_query_timeout_seconds": 630,
         "browser_launch_timeout_seconds": 45,
         "auto_kill_stale_ai_chrome": False,
     },
