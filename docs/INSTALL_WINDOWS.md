@@ -46,10 +46,13 @@ Run:
 
 ```powershell
 .\scripts\windows\doctor.ps1
+.\scripts\windows\verify-install.ps1
 ```
 
 Expected fields include `codex_mcp_registered=True` and
-`web_first_rule_installed=True`. In Codex, call `bridge_health_check`, then use:
+`web_first_rule_installed=True`. `verify-install.ps1` also imports the installed MCP
+server with the generated local configuration. In Codex, call `bridge_health_check`,
+then use:
 
 ```text
 ask_pro_architect

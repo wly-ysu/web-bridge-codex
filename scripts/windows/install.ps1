@@ -43,6 +43,7 @@ try {
         & (Join-Path $PSScriptRoot "launch-web-profile.ps1")
     }
     Write-Host "Restart Codex after signing in to ChatGPT in the dedicated browser profile."
+    Write-Host "Run scripts/windows/verify-install.ps1 to verify the local installation."
     Write-Host "Then call bridge_health_check, followed by ask_pro_architect with profile=fast."
 } catch {
     Write-Error "Installation failed: $($_.Exception.Message)"

@@ -2,7 +2,7 @@
 
 1. Update `VERSION` and `CHANGELOG.md`.
 2. Run the Windows installer on a clean Windows 10/11 user account.
-3. Verify `doctor.ps1`, MCP registration, dedicated Chrome sign-in, and the minimal
+3. Verify `doctor.ps1`, `verify-install.ps1`, MCP registration, dedicated Chrome sign-in, and the minimal
    `ask_pro_architect` marker call.
 4. Confirm the repository has no Chrome profile, log, token, cookie, venv, or local
    configuration files staged.
