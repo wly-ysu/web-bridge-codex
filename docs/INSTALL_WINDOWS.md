@@ -96,6 +96,10 @@ automatically routed request, see [CODEX_GLOBAL_ROUTING.md](CODEX_GLOBAL_ROUTING
 
 ## Repair, upgrade, uninstall
 
+Completely close Codex before an upgrade or repair. An active MCP server may still hold files
+from the previous installation; the installer detects this condition and stops without changing
+the installed application.
+
 Run these from the installed source checkout or from a new checkout:
 
 ```powershell

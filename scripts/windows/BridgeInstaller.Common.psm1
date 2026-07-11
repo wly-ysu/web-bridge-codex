@@ -58,6 +58,20 @@ function Backup-BridgeFile([string]$Path) {
     return $null
 }
 
+function Get-BridgeServerProcesses {
+    $paths = Get-BridgePaths
+    $serverPath = Join-Path $paths.App "server.py"
+    $matching = @()
+    try {
+        $matching = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+            $_.CommandLine -and $_.CommandLine.IndexOf($serverPath, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+        })
+    } catch {
+        return @()
+    }
+    return $matching
+}
+
 function Get-BridgePython {
     $python = Get-Command python -ErrorAction SilentlyContinue
     if ($python) { return $python.Source }
@@ -152,10 +166,12 @@ function Set-BridgeMcpRegistration([switch]$Remove) {
     }
     $python = Join-Path $paths.Runtime "Scripts\python.exe"
     $server = Join-Path $paths.App "server.py"
+    $logPath = Join-Path $paths.Logs "bridge_mcp.log"
     $entry = @(
         "[mcp_servers.web-bridge-codex]",
         "enabled = true",
         "command = $(ConvertTo-BridgeTomlString $python)",
+        "env = { WEB_BRIDGE_LOG_PATH = $(ConvertTo-BridgeTomlString $logPath) }",
         "args = [",
         "  $(ConvertTo-BridgeTomlString $server),",
         '  "--config",',
@@ -219,7 +235,13 @@ function Copy-BridgeApplication([string]$SourceDir) {
     if (-not (Test-Path -LiteralPath (Join-Path $SourceDir "server.py"))) {
         throw "SourceDir does not contain server.py: $SourceDir"
     }
-    if (Test-Path -LiteralPath $paths.App) { Remove-Item -LiteralPath $paths.App -Recurse -Force }
+    if (Test-Path -LiteralPath $paths.App) {
+        $activeServers = @(Get-BridgeServerProcesses)
+        if ($activeServers.Count -gt 0) {
+            throw "An active web-bridge-codex MCP server is using the installed application. Completely close Codex, then rerun the installer."
+        }
+        Remove-Item -LiteralPath $paths.App -Recurse -Force
+    }
     Ensure-BridgeDirectory $paths.App
     $excluded = @(".git", "__pycache__", "logs", ".gptpro-browser", "browser_data", "runtime", "dist")
     Get-ChildItem -LiteralPath $SourceDir -Force | Where-Object { $excluded -notcontains $_.Name -and $_.Name -notin @("config.yaml", "bridge_mcp.log", "bridge_launch_matrix.log") } | ForEach-Object {
@@ -265,5 +287,5 @@ function Write-BridgeConfig([string]$SourceDir, [string]$ChromePath = "") {
     Set-Content -LiteralPath $paths.ConfigFile -Value $content -Encoding utf8
 }
 
-Export-ModuleMember -Function Get-BridgePaths, Migrate-LegacyBridgeInstall, Ensure-BridgeDirectory, Backup-BridgeFile, Get-BridgePython, Install-BridgePythonIfNeeded, Find-BridgeChrome, Install-BridgeChromeIfNeeded, Set-BridgeMcpRegistration, Set-BridgeWebFirstRule, Copy-BridgeApplication, Write-BridgeConfig
+Export-ModuleMember -Function Get-BridgePaths, Migrate-LegacyBridgeInstall, Ensure-BridgeDirectory, Backup-BridgeFile, Get-BridgeServerProcesses, Get-BridgePython, Install-BridgePythonIfNeeded, Find-BridgeChrome, Install-BridgeChromeIfNeeded, Set-BridgeMcpRegistration, Set-BridgeWebFirstRule, Copy-BridgeApplication, Write-BridgeConfig
 

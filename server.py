@@ -11,7 +11,11 @@ from typing import Any
 
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG_PATH = BASE_DIR / "config.yaml"
-DEFAULT_LOG_PATH = BASE_DIR / "bridge_mcp.log"
+DEFAULT_LOG_PATH = Path(
+    os.path.expandvars(
+        os.path.expanduser(os.getenv("WEB_BRIDGE_LOG_PATH", str(BASE_DIR / "bridge_mcp.log")))
+    )
+)
 
 logging.basicConfig(
     filename=str(DEFAULT_LOG_PATH),

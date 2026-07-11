@@ -87,6 +87,7 @@ jobs:
           if ($installedYaml -notmatch '(?m)^  executable_path:\s*".+"\s*$') { throw "Installer did not write the detected Chrome executable path to config.yaml." }
           $installedConfig = Get-Content -LiteralPath $codexConfig -Raw -Encoding utf8
           if ($installedConfig -notmatch '(?m)^\[mcp_servers\.node_repl\]') { throw "Unrelated MCP registration was not preserved." }
+          if ($installedConfig -notmatch 'WEB_BRIDGE_LOG_PATH') { throw "MCP registration did not configure an external bridge log path." }
           if ($installedConfig -match '(?m)^\[mcp_servers\.pro_bridge_codex(?:\.|\])') { throw "Legacy MCP parent or child tables were not fully removed." }
           if ([regex]::Matches($installedConfig, '(?m)^\[mcp_servers\.web-bridge-codex\]').Count -ne 1) { throw "Expected exactly one canonical MCP registration." }
           & (Join-Path $currentRoot "runtime\Scripts\python.exe") -c "import pathlib, sys, tomllib; tomllib.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8-sig'))" $codexConfig
