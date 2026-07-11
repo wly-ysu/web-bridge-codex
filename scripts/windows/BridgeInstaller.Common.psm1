@@ -30,7 +30,7 @@ function Migrate-LegacyBridgeInstall {
     if (Test-Path -LiteralPath $paths.ConfigFile) {
         $legacyForward = $paths.LegacyRoot.Replace("\", "/")
         $currentForward = $paths.Root.Replace("\", "/")
-        $content = Get-Content -LiteralPath $paths.ConfigFile -Raw
+        $content = Get-Content -LiteralPath $paths.ConfigFile -Raw -Encoding utf8
         $content = $content.Replace($paths.LegacyRoot, $paths.Root).Replace($legacyForward, $currentForward)
         Set-Content -LiteralPath $paths.ConfigFile -Value $content -Encoding utf8
     }
@@ -132,7 +132,7 @@ function Set-BridgeMcpRegistration([switch]$Remove) {
     $paths = Get-BridgePaths
     Ensure-BridgeDirectory $paths.CodexHome
     $configPath = $paths.CodexConfig
-    $content = if (Test-Path -LiteralPath $configPath) { Get-Content -LiteralPath $configPath -Raw } else { "" }
+    $content = if (Test-Path -LiteralPath $configPath) { Get-Content -LiteralPath $configPath -Raw -Encoding utf8 } else { "" }
     $sectionPatterns = @(
         '(?ms)^\[mcp_servers\.pro_bridge_codex\]\r?\n.*?(?=^\[|\z)',
         '(?ms)^\[mcp_servers\.web-bridge-codex\]\r?\n.*?(?=^\[|\z)'
@@ -168,7 +168,7 @@ function Set-BridgeWebFirstRule([switch]$Remove) {
     $paths = Get-BridgePaths
     Ensure-BridgeDirectory $paths.CodexHome
     $rulePath = $paths.CodexRules
-    $content = if (Test-Path -LiteralPath $rulePath) { Get-Content -LiteralPath $rulePath -Raw } else { "" }
+    $content = if (Test-Path -LiteralPath $rulePath) { Get-Content -LiteralPath $rulePath -Raw -Encoding utf8 } else { "" }
     $patterns = @(
         '(?ms)<!-- pro_bridge_codex:web-first:start -->.*?<!-- pro_bridge_codex:web-first:end -->\r?\n?',
         '(?ms)<!-- web-bridge-codex:web-first:start -->.*?<!-- web-bridge-codex:web-first:end -->\r?\n?'
@@ -217,7 +217,7 @@ function Write-BridgeConfig([string]$SourceDir) {
     if (Test-Path -LiteralPath $paths.ConfigFile) { return }
     $template = Join-Path $SourceDir "config.example.yaml"
     if (-not (Test-Path -LiteralPath $template)) { throw "Missing configuration template: $template" }
-    $content = Get-Content -LiteralPath $template -Raw
+    $content = Get-Content -LiteralPath $template -Raw -Encoding utf8
     $profilePath = $paths.Profile.Replace("\", "/")
     $content = [regex]::Replace($content, '(?m)^  user_data_dir:.*$', "  user_data_dir: `"$profilePath`"")
     Set-Content -LiteralPath $paths.ConfigFile -Value $content -Encoding utf8
