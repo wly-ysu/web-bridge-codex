@@ -43,14 +43,25 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install through CMD entry and verify
+      - name: Install through PowerShell bootstrap entry and verify
         shell: pwsh
         run: |
-          $sandbox = Join-Path $env:RUNNER_TEMP "pro-bridge-install-smoke"
+          $sandbox = Join-Path $env:RUNNER_TEMP "pro-bridge-powershell-bootstrap-smoke"
           $env:LOCALAPPDATA = Join-Path $sandbox "localappdata"
           $env:USERPROFILE = Join-Path $sandbox "userprofile"
           New-Item -ItemType Directory -Force -Path (Join-Path $env:USERPROFILE ".codex") | Out-Null
-          cmd /c scripts\windows\install.cmd -SourceDir "$PWD" -NonInteractive -AcceptAiProfile -SkipBrowserLaunch
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\windows\bootstrap.ps1 -Repository wly-ysu/web-bridge-codex -Ref main -NonInteractive -AcceptAiProfile -SkipBrowserLaunch
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & (Join-Path $env:LOCALAPPDATA "pro_bridge_codex\app\scripts\windows\verify-install.ps1")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Install through CMD bootstrap entry and verify
+        shell: pwsh
+        run: |
+          $sandbox = Join-Path $env:RUNNER_TEMP "pro-bridge-cmd-bootstrap-smoke"
+          $env:LOCALAPPDATA = Join-Path $sandbox "localappdata"
+          $env:USERPROFILE = Join-Path $sandbox "userprofile"
+          New-Item -ItemType Directory -Force -Path (Join-Path $env:USERPROFILE ".codex") | Out-Null
+          cmd /c scripts\windows\bootstrap.cmd -Repository wly-ysu/web-bridge-codex -Ref main -NonInteractive -AcceptAiProfile -SkipBrowserLaunch
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & (Join-Path $env:LOCALAPPDATA "pro_bridge_codex\app\scripts\windows\verify-install.ps1")
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
