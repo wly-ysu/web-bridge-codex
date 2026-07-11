@@ -1,68 +1,112 @@
-# Codex-ChatGPTWeb Bridge (MVP)
+# Codex-ChatGPTWeb Bridge
 
-This project implements a local MCP bridge that makes **Codex the single user entrypoint**
-and connects to ChatGPT Web as an architecture/review assistant using the best available
-model in your account at runtime.
+`pro_bridge_codex` makes Codex the local executor and ChatGPT Web the default planner,
+architect, reviewer, and debugger. It registers a local MCP server and a managed Web-First
+rule: natural-language project requests go to ChatGPT Web first, while explicit deterministic
+local work remains local.
 
-It provides three MCP tools:
+## Quick install
 
-- `route_to_web_lead`
-- `ask_pro_architect`
-- `review_pro_code`
-- `debug_pro_error`
+You need Codex and an internet connection. The installer uses a dedicated AI browser Profile;
+it never copies or modifies your normal Chrome Profile or login data.
 
-## Windows one-click delivery
+| Platform | Status | Dependency behavior | Automated coverage |
+|---|---|---|---|
+| Windows 10/11 x64 | Primary | Attempts `winget` for missing Python and Chrome | PowerShell and CMD clean-runner smoke tests |
+| macOS | Preview | Requires Python 3.11+, Chrome/Chromium, and Codex | Non-GUI install smoke with a fake browser |
+| Linux | Preview | Requires Python 3.11+, Chrome/Chromium, and Codex | Ubuntu Docker install smoke with a fake browser |
 
-Windows 10/11 is the first supported delivery target. The installer creates a
-user-level isolated runtime, a dedicated ChatGPT Chrome profile, a Codex MCP
-registration, and the global Web-First rule. It never copies the normal Chrome profile.
+### Windows PowerShell
 
-The global rule defaults every natural-language Codex request to the Web Lead. It keeps
-explicit deterministic local execution local and limits automatic Web routing to once per
-turn to prevent recursive MCP calls.
-
-From a repository checkout:
-
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\scripts\windows\install.ps1
-```
-
-From the public GitHub repository:
+Run this in **PowerShell**, not CMD:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass -Force; irm https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.ps1 | iex
 ```
 
-From Windows CMD, use:
+The installer runs for the current user under `%LOCALAPPDATA%\pro_bridge_codex`. It displays
+the detected browser and dedicated AI Profile path, then asks before creating or reusing that
+Profile. If Python or Chrome is missing, it attempts `winget`; success still depends on the
+machine's network, policy, and configured package sources.
+
+### Windows CMD
+
+Run this in **cmd.exe**, not PowerShell:
 
 ```cmd
 curl.exe -fsSL -o "%TEMP%\pro_bridge_codex_bootstrap.cmd" https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.cmd && call "%TEMP%\pro_bridge_codex_bootstrap.cmd"
 ```
 
-On a bare Windows device that already has Codex, this one command installs Python and
-Google Chrome through `winget` when either is missing, then creates the isolated bridge.
-The only manual action is ChatGPT login in the dedicated browser window. See
-[docs/START_HERE_WINDOWS.md](docs/START_HERE_WINDOWS.md).
+The CMD command enters the same Windows installer. Keep the complete terminal output if it
+fails. Both public Windows entrypoints are smoke-tested in isolated GitHub Windows runners.
 
-For a version-pinned installation, download the Windows ZIP and `SHA256SUMS.txt` from a
-GitHub Release, verify the checksum, extract the ZIP, and run
-`scripts\windows\install.ps1`.
+### macOS (Preview)
 
-Sign in to ChatGPT in the dedicated Chrome window, restart Codex, then call
-`bridge_health_check`. Full instructions, repair, diagnostics, and uninstall are in
-[docs/INSTALL_WINDOWS.md](docs/INSTALL_WINDOWS.md). The platform roadmap is in
-[docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md).
-
-macOS and Linux have preview one-command installers. They require an existing Python 3.11+
-installation, Chrome/Chromium, and Codex; they do not use `sudo` or install system packages:
+macOS currently requires Codex, Python 3.11+ with `venv`, and Google Chrome or Chromium to be
+installed first:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/unix/bootstrap.sh | sh
 ```
 
-See [docs/INSTALL_MACOS.md](docs/INSTALL_MACOS.md) and
-[docs/INSTALL_LINUX.md](docs/INSTALL_LINUX.md) for platform details.
+See [docs/INSTALL_MACOS.md](docs/INSTALL_MACOS.md) if a dependency is missing.
+
+### Linux (Preview)
+
+Linux currently requires Codex, Python 3.11+ with `venv`, and Google Chrome or Chromium to be
+installed first:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/unix/bootstrap.sh | sh
+```
+
+The automated Linux check uses an Ubuntu Docker container; other distributions, desktop stacks,
+enterprise proxies, and browser packaging variants need device-specific validation. See
+[docs/INSTALL_LINUX.md](docs/INSTALL_LINUX.md).
+
+### First dedicated browser login
+
+1. Approve creation or reuse of the dedicated AI Profile when prompted.
+2. In the browser window opened by the installer, sign in to `https://chatgpt.com` manually.
+3. Confirm you can open a new ChatGPT conversation, then close the dedicated browser window.
+
+The installer never reads passwords, cookies, or the normal Chrome Profile. GitHub CI cannot
+verify ChatGPT login, MFA/SSO, account entitlement, Web page selectors, or a real model reply.
+
+### Restart Codex and verify
+
+Completely quit and reopen Codex after installation and first login. Existing Codex processes do
+not reload newly registered MCP servers or rules automatically.
+
+Then confirm the `pro_bridge_codex` MCP server is enabled and call:
+
+```text
+bridge_health_check
+```
+
+Finally validate the real Web loop with:
+
+```text
+ask_pro_architect
+
+question:
+请只输出 WINDOWS_INSTALL_SUCCESS
+```
+
+The expected reply is `WINDOWS_INSTALL_SUCCESS`. A successful local installation does not by
+itself prove ChatGPT Web login or browser automation; this final call is the real device check.
+
+### CI and detailed docs
+
+GitHub Actions checks PowerShell and CMD Windows bootstrap installs, PowerShell syntax, Linux
+shell syntax, an Ubuntu Docker install smoke, and a macOS non-GUI install smoke. It does not
+perform real ChatGPT login or conversation tests.
+
+- [Windows quick start](docs/START_HERE_WINDOWS.md)
+- [Windows installation, repair, and uninstall](docs/INSTALL_WINDOWS.md)
+- [macOS installation](docs/INSTALL_MACOS.md)
+- [Linux installation](docs/INSTALL_LINUX.md)
+- [platform support and limits](docs/PLATFORM_SUPPORT.md)
 
 The bridge collects local repository context (git status/diff/files/logs),
 builds compact prompts and sends them to ChatGPT Web through one of:
