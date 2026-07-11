@@ -104,10 +104,12 @@ DEFAULT_CONFIG = {
         "timeout_ms": 120000,
         "model_strategy": {
             "mode": "best_available",
-            "preferred_models": [
-                "GPT-5.5 Pro",
-                "Pro 扩展",
-                "GPT-5.5",
+            "capability_order": [
+                ["professional", "pro", "专业"],
+                ["very high", "extra high", "超高"],
+                ["high", "高级"],
+                ["balanced", "均衡"],
+                ["fast", "极速"],
             ],
             "fallback_to_current_model": True,
             "fail_if_preferred_unavailable": False,
@@ -150,7 +152,7 @@ DEFAULT_CONFIG = {
         "max_tabs_warning_threshold": 5,
     },
     "api_adapter": {
-        "model": "gpt-5.5-pro",
+        "model": "",
         "temperature": 0.2,
         "max_tokens": 4096,
         "response_wait_seconds": 60,
@@ -247,8 +249,7 @@ def create_server(config_path: str | Path = DEFAULT_CONFIG_PATH, verbose: bool =
     model_strategy = web_cfg.get("model_strategy", {})
     if web_cfg.get("enabled", True):
         logger.info("[Bridge] Web Tech Lead adapter: enabled")
-        logger.info("[Bridge] Model strategy: %s", model_strategy.get("mode", "best_available"))
-        logger.info("[Bridge] Preferred models: %s", ", ".join(model_strategy.get("preferred_models", [])))
+        logger.info("[Bridge] Model policy: %s", model_strategy.get("mode", "best_available"))
         logger.info("[Bridge] Fallback to current web model: %s", model_strategy.get("fallback_to_current_model", True))
 
     workspace_root = Path.cwd().resolve()

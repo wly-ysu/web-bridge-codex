@@ -1,7 +1,7 @@
 """Playwright adapter for ChatGPT web UI.
 
 Historically named GPTProWebAdapter for backward compatibility. The actual behavior
-is ChatGPT Web Tech Lead Adapter: it does not require GPT-5.5 Pro availability.
+is a model-neutral ChatGPT Web Tech Lead Adapter.
 """
 
 from __future__ import annotations
@@ -50,7 +50,9 @@ class GPTProWebAdapter:
         if not isinstance(strategy, dict):
             strategy = {}
         return {
-            "mode": str(strategy.get("mode", "best_available")),
+            "mode": str(strategy.get("mode", "best_available")).lower(),
+            "capability_order": list(strategy.get("capability_order", [])),
+            # Legacy named candidates are accepted but never used as a routing key.
             "preferred_models": list(strategy.get("preferred_models", [])),
             "fallback_to_current_model": bool(strategy.get("fallback_to_current_model", True)),
             "fail_if_preferred_unavailable": bool(strategy.get("fail_if_preferred_unavailable", False)),
@@ -943,7 +945,7 @@ if ($null -eq $procs) { "[]" } else { $procs }
                 )
 
                 self._set_stage("web.model_selection.start", call_id=call_id)
-                selected_model = await self._select_best_available_model(page, call_id)
+                selected_model = await self._apply_model_policy(page, call_id)
                 self._log("info", "Selected / current model", {"call_id": call_id, "model": selected_model})
                 self._set_stage("web.model_selection.done", call_id=call_id, model=selected_model)
 
@@ -2225,7 +2227,6 @@ if ($null -eq $procs) { "[]" } else { $procs }
         selectors = [
             "button[data-testid='model-switcher']",
             "button[data-testid='model-switcher-mobile']",
-            "button:has-text('GPT-5.5')",
             "button[aria-label*='Model']",
             "[data-testid*='model'] button",
             "button:has-text('Model')",
@@ -2349,53 +2350,41 @@ if ($null -eq $procs) { "[]" } else { $procs }
             self._log("debug", "fallback model selection failed", {"call_id": call_id, "model": target_model, "error": str(exc)})
             return False
 
-    async def _select_best_available_model(self, page, call_id: str) -> str:
+    async def _apply_model_policy(self, page, call_id: str) -> str:
         strategy = self._get_model_strategy()
         mode = strategy.get("mode", "best_available")
 
         self._log("info", "Model strategy", {"call_id": call_id, "mode": mode})
         self._set_stage("web.model_selection.start", call_id=call_id, mode=mode)
 
-        if mode != "best_available":
-            current = await self._read_current_model_text(page, call_id)
-            self._set_stage("web.model_selection.done", call_id=call_id, model=(current or "unknown"))
-            return current or "unknown"
-
         preferred_models = strategy.get("preferred_models", [])
         if preferred_models:
             self._log(
-                "info",
-                "Preferred model candidates:",
-                {"call_id": call_id, "models": ", ".join(preferred_models)},
+                "warning",
+                "legacy named model candidates ignored; retaining current ChatGPT Web model",
+                {"call_id": call_id},
             )
-            current_model = await self._read_current_model_text(page, call_id)
-            if current_model is None:
-                self._log("warning", "Unable to detect current model, continue with current ChatGPT web selection", {"call_id": call_id})
-                current_model = "unknown"
+        current_model = await self._read_current_model_text(page, call_id)
+        if current_model is None:
+            self._log("warning", "Unable to detect current model, continue with current ChatGPT web selection", {"call_id": call_id})
+            current_model = "unknown"
 
-            for model in preferred_models:
-                self._log("info", "try select model", {"call_id": call_id, "model": model})
-                if await self._choose_model(page, model, call_id):
-                    self._log("info", "Selected model:", {"call_id": call_id, "model": model})
-                    self._set_stage("web.model_selection.done", call_id=call_id, model=model)
-                    return model
-                self._log("warning", "model not available", {"call_id": call_id, "model": model})
+        if mode == "best_available":
+            for tier in strategy.get("capability_order", []):
+                labels = [str(label).strip() for label in tier] if isinstance(tier, list) else [str(tier).strip()]
+                for label in labels:
+                    if not label:
+                        continue
+                    self._log("info", "try select model capability", {"call_id": call_id, "capability": label})
+                    if await self._choose_model(page, label, call_id):
+                        observed = await self._read_current_model_text(page, call_id) or label
+                        self._log("info", "selected highest available model capability", {"call_id": call_id, "capability": label, "observed_model": observed})
+                        self._set_stage("web.model_selection.done", call_id=call_id, model=observed)
+                        return observed
+            self._log("warning", "no preferred capability available; retaining current ChatGPT Web model", {"call_id": call_id})
 
-            if strategy.get("fallback_to_current_model", True):
-                self._log("warning", "Pro model unavailable, fallback to current available web model", {"call_id": call_id})
-                self._set_stage("web.model_selection.done", call_id=call_id, model=current_model)
-                return current_model
-
-            if strategy.get("fail_if_preferred_unavailable", False):
-                self._set_stage("web.model_selection.done", call_id=call_id, model="failed")
-                raise RuntimeError("Failed to select a preferred model.")
-
-            self._set_stage("web.model_selection.done", call_id=call_id, model=current_model)
-            return current_model
-
-        final = (await self._read_current_model_text(page, call_id)) or "unknown"
-        self._set_stage("web.model_selection.done", call_id=call_id, model=final)
-        return final
-
+        self._log("info", "model switch not requested", {"call_id": call_id, "model_policy": mode})
+        self._set_stage("web.model_selection.done", call_id=call_id, model=current_model)
+        return current_model
 
 ChatGPTWebAdapter = GPTProWebAdapter

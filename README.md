@@ -256,26 +256,25 @@ User asks natural language question
 
 Model selection policy:
 
-| Scenario | Tool | Profile | Model tendency |
+| Scenario | Tool | Profile | Runtime model behavior |
 |---|---|---|---|
-| Simple judgment | `ask_pro_architect` | `fast` | GPT-5.5 |
-| Normal architecture | `ask_pro_architect` | `balanced` | GPT-5.5 |
-| 30min-2h complex problem | `ask_pro_architect` | `deep_lite` | GPT-5.5 first |
-| 2h+ strategic problem | `ask_pro_architect` | `pro_deep` | GPT-5.5 Pro first |
-| Normal review | `review_pro_code` | `review` | GPT-5.5 |
-| Critical review | `review_pro_code` | `pro_review` | GPT-5.5 Pro first |
-| Normal debug | `debug_pro_error` | `debug` | GPT-5.5 |
-| Complex debug | `debug_pro_error` | `pro_debug` | GPT-5.5 Pro first |
+| Simple judgment | `ask_pro_architect` | `fast` | Current available Web model, concise response |
+| Normal architecture | `ask_pro_architect` | `balanced` | Best available Web capability, balanced reasoning |
+| 30min-2h complex problem | `ask_pro_architect` | `deep_lite` | Best available Web capability, deeper reasoning |
+| 2h+ strategic problem | `ask_pro_architect` | `pro_deep` | Strongest available Web capability, then automatic downgrade |
+| Normal review | `review_pro_code` | `review` | Best available Web capability, balanced reasoning |
+| Critical review | `review_pro_code` | `pro_review` | Strongest available Web capability, then automatic downgrade |
+| Normal debug | `debug_pro_error` | `debug` | Best available Web capability, balanced reasoning |
+| Complex debug | `debug_pro_error` | `pro_debug` | Strongest available Web capability, then automatic downgrade |
 
 ## Model Budget Strategy
 
-The default policy is to avoid spending Pro quota.
+ChatGPT Web is the source of truth for currently available models. The bridge first attempts
+the strongest visible capability tier; if its quota is exhausted or unavailable, it tries the
+next tier and finally continues with the current Web selection. Profile names describe task
+complexity and latency preference, not a fixed model version.
 
-Normal questions should use GPT-5.5 or the current ChatGPT Web model first. Pro / Pro
-extension should be reserved for problems likely to need 2+ hours of deep reasoning or
-high-value strategic decisions.
-
-Use GPT-5.5 first for:
+Use lower-complexity profiles for:
 
 - simple explanations
 - normal architecture questions
@@ -284,7 +283,7 @@ Use GPT-5.5 first for:
 - medium difficulty questions
 - problems likely solvable within 30 minutes
 
-Reserve Pro for:
+Use high-complexity profiles for:
 
 - 2h+ deep architecture reasoning
 - patent / innovation strategy

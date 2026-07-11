@@ -15,11 +15,11 @@ User asks natural language question
 
 ## Model Budget Policy
 
-Simple and normal tasks should use GPT-5.5 or the current web model.
+ChatGPT Web is the source of truth for model availability. The bridge attempts the strongest
+currently visible capability tier, falls back when it is unavailable, and never depends on a
+fixed public model name.
 
-Pro / Pro extension quota is limited and should be reserved for rare high-value tasks.
-
-Reserve Pro for:
+Use high-complexity profiles for:
 
 - 2h+ deep architecture reasoning
 - patent / innovation strategy
@@ -29,7 +29,7 @@ Reserve Pro for:
 - high-risk final review
 - decisions affecting project direction for weeks/months
 
-Avoid Pro for:
+Use lower-complexity profiles for:
 
 - simple explanations
 - normal architecture questions
@@ -39,23 +39,23 @@ Avoid Pro for:
 - small code changes
 - problems likely solvable within 30 minutes
 
-## Pro Quota Conservation
+## Capability-Aware Routing
 
 Rule of thumb:
 
-| Estimated difficulty | Profile | Model priority |
+| Estimated difficulty | Profile | Runtime behavior |
 |---|---|---|
-| < 5 min | `fast` | GPT-5.5 |
-| 5-30 min | `balanced` | GPT-5.5 |
-| 30 min-2h | `deep_lite` | GPT-5.5 first |
-| 2h+ or strategic | `pro_deep` | Pro first |
+| < 5 min | `fast` | Current Web selection, concise response |
+| 5-30 min | `balanced` | Best available capability, balanced reasoning |
+| 30 min-2h | `deep_lite` | Best available capability, deeper reasoning |
+| 2h+ or strategic | `pro_deep` | Strongest available capability, then automatic downgrade |
 
 User preference:
 
 If user says:
 
 ```text
-这个留给 Pro
+这个用最高可用能力
 ```
 
 then use `pro_deep`.
@@ -63,7 +63,7 @@ then use `pro_deep`.
 If user says:
 
 ```text
-普通5.5就行
+普通速度优先就行
 ```
 
 then avoid Pro.

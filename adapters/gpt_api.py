@@ -31,8 +31,11 @@ class GPTAPIAdapter:
             kwargs["organization"] = org
 
         client = AsyncOpenAI(**kwargs)
+        model = str(self.cfg.get("model", "")).strip()
+        if not model:
+            raise RuntimeError("api_adapter.model must be explicitly configured when using API mode.")
         response = await client.chat.completions.create(
-            model=self.cfg.get("model", "gpt-5.5-pro"),
+            model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=float(self.cfg.get("temperature", 0.2)),
             max_tokens=int(self.cfg.get("max_tokens", 2048)),

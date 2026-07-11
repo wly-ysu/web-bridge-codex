@@ -25,7 +25,7 @@ The next goal is to turn the MVP into a daily-use tool:
 - no Chrome tab leakage
 - `review_pro_code` and `debug_pro_error` validated end to end
 - natural language routing verified
-- GPT-5.5 / Pro budget used deliberately
+- current Web capability used deliberately
 - workspace context restored and verified
 
 For the long-term multi-provider architecture covering Doubao, DeepSeek, Xiaomi,
@@ -109,7 +109,7 @@ These helped diagnose:
 
 Status: direction delivered.
 
-The bridge is no longer positioned as requiring GPT-5.5 Pro. The intended behavior is:
+The bridge is not positioned as requiring a fixed Web model. The intended behavior is:
 
 ```text
 Use the current available ChatGPT Web model.
@@ -117,9 +117,9 @@ Use the current available ChatGPT Web model.
 
 Policy:
 
-- use Pro when available and appropriate
-- fall back to GPT-5.5 / current web model
-- do not fail just because Pro is unavailable
+- attempt the strongest currently available Web capability
+- fall back to the next available capability or current Web model
+- do not fail when a capability tier is unavailable
 
 ## Pending Core Validation
 
@@ -247,7 +247,7 @@ Priority: P1.
 
 Current strategy:
 
-- simple / normal problems use GPT-5.5
+- simple / normal problems use lower-complexity profiles
 - 30min-2h complex problems use `deep_lite`
 - 2h+ strategic problems use `pro_deep`
 
@@ -318,8 +318,8 @@ Reliably switch ChatGPT Web model/profile when appropriate.
 Need to validate:
 
 - model selector open
-- GPT-5.5 selection
-- Pro / Pro extension selection
+- dynamic capability-tier selection
+- fallback to the next available capability tier
 - fallback when selection fails
 - selected model logging
 

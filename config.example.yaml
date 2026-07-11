@@ -96,61 +96,42 @@ web_adapter:
   headless: false
   timeout_ms: 120000
   model_strategy:
+    # Prefer the strongest capability currently available in ChatGPT Web.
+    # If its quota is exhausted or the option is unavailable, try the next tier.
+    # These are capability labels, not fixed model-version names.
     mode: "best_available"
-    preferred_models:
-      - "GPT-5.5 Pro"
-      - "Pro extension"
-      - "GPT-5.5"
+    capability_order:
+      - ["professional", "pro", "专业"]
+      - ["very high", "extra high", "超高"]
+      - ["high", "高级"]
+      - ["balanced", "均衡"]
+      - ["fast", "极速"]
     fallback_to_current_model: true
     fail_if_preferred_unavailable: false
   profiles:
     fast:
-      description: "Simple questions and low-cost quick checks"
-      preferred_models:
-        - "GPT-5.5"
+      description: "Simple questions and concise, low-latency responses"
       thinking_level: "fast"
     balanced:
       description: "Default Tech Lead analysis for normal architecture and under-30min problems"
-      preferred_models:
-        - "GPT-5.5"
       thinking_level: "auto"
     deep_lite:
-      description: "Complex but not Pro-first; prefer GPT-5.5"
-      preferred_models:
-        - "GPT-5.5"
-        - "GPT-5.5 Pro"
-        - "Pro extension"
+      description: "Complex analysis with deeper reasoning and moderate latency"
       thinking_level: "deep"
     pro_deep:
-      description: "2h+ high-value problems, prefer Pro quota"
-      preferred_models:
-        - "GPT-5.5 Pro"
-        - "Pro extension"
-        - "GPT-5.5"
+      description: "Strategic or high-risk work; request the strongest current Web reasoning"
       thinking_level: "deep"
     review:
-      description: "Normal code review, prefer GPT-5.5"
-      preferred_models:
-        - "GPT-5.5"
+      description: "Normal code review with balanced reasoning"
       thinking_level: "balanced"
     pro_review:
-      description: "Critical code review, prefer Pro"
-      preferred_models:
-        - "GPT-5.5 Pro"
-        - "Pro extension"
-        - "GPT-5.5"
+      description: "Critical code review; request the strongest current Web reasoning"
       thinking_level: "deep"
     debug:
-      description: "Normal debugging, prefer GPT-5.5"
-      preferred_models:
-        - "GPT-5.5"
+      description: "Normal debugging with balanced reasoning"
       thinking_level: "balanced"
     pro_debug:
-      description: "Multi-round failures and complex root-cause analysis, prefer Pro"
-      preferred_models:
-        - "GPT-5.5 Pro"
-        - "Pro extension"
-        - "GPT-5.5"
+      description: "Complex root-cause analysis; request the strongest current Web reasoning"
       thinking_level: "deep"
   input_selectors:
     - "#prompt-textarea"
@@ -186,7 +167,8 @@ browser_tabs:
   max_tabs_warning_threshold: 5
 
 api_adapter:
-  model: gpt-5.5-pro
+  # API mode requires an explicit provider model name; Web mode is model-neutral.
+  model: ""
   temperature: 0.2
   max_tokens: 4096
   request_timeout_seconds: 60
