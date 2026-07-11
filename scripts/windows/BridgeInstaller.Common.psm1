@@ -234,11 +234,19 @@ function Write-BridgeConfig([string]$SourceDir, [string]$ChromePath = "") {
     if (Test-Path -LiteralPath $paths.ConfigFile) {
         if (-not [string]::IsNullOrWhiteSpace($chromePathForYaml)) {
             $content = Get-Content -LiteralPath $paths.ConfigFile -Raw -Encoding utf8
-            $updated = [regex]::Replace(
-                $content,
-                '(?m)^  executable_path:\s*""\s*$',
-                "  executable_path: `"$chromePathForYaml`""
-            )
+            if ($content -match '(?m)^  executable_path:') {
+                $updated = [regex]::Replace(
+                    $content,
+                    '(?m)^  executable_path:\s*""\s*$',
+                    "  executable_path: `"$chromePathForYaml`""
+                )
+            } else {
+                $updated = [regex]::Replace(
+                    $content,
+                    '(?m)^(  user_data_dir:.*)$',
+                    "`$1$([Environment]::NewLine)  executable_path: `"$chromePathForYaml`""
+                )
+            }
             if ($updated -ne $content) {
                 Backup-BridgeFile $paths.ConfigFile | Out-Null
                 Set-Content -LiteralPath $paths.ConfigFile -Value $updated -Encoding utf8
