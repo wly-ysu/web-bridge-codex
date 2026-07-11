@@ -20,6 +20,6 @@ printf '%s\n' \
   "venv_present=$([ -x "$VENV" ] && echo true || echo false)" \
   "chrome_profile_present=$([ -d "$ROOT/chrome-profile" ] && echo true || echo false)" \
   "codex_mcp_registered=$has_mcp" \
-  "web_first_rule_installed=$has_rule"
+  "web_first_rule_installed=$has_rule" \
   "legacy_install_present=$([ -d "$LEGACY_ROOT" ] && echo true || echo false)"
 
