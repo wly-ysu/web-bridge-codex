@@ -5,6 +5,10 @@ architect, reviewer, and debugger. It registers a local MCP server and a managed
 rule: natural-language project requests go to ChatGPT Web first, while explicit deterministic
 local work remains local.
 
+**Naming:** the public GitHub repository is `web-bridge-codex`; the stable MCP server ID,
+installation directory, and Codex settings entry are `pro_bridge_codex`. These names refer to
+the same Bridge. The MCP ID remains stable so existing installations do not break.
+
 ## Quick install
 
 You need Codex and an internet connection. The installer uses a dedicated AI browser Profile;

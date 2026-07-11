@@ -128,6 +128,7 @@ function Set-BridgeMcpRegistration([switch]$Remove) {
     $server = Join-Path $paths.App "server.py"
     $entry = @(
         "[mcp_servers.pro_bridge_codex]",
+        "enabled = true",
         "command = $(ConvertTo-BridgeTomlString $python)",
         "args = [",
         "  $(ConvertTo-BridgeTomlString $server),",
