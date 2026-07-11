@@ -83,4 +83,4 @@ jobs:
           chmod +x "$HOME/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
           export XDG_DATA_HOME="$RUNNER_TEMP/pro-bridge-macos-data"
           sh scripts/unix/install.sh --non-interactive --accept-ai-profile --no-open-browser
-          sh "$XDG_DATA_HOME/pro_bridge_codex/app/scripts/unix/doctor.sh"
+          sh "$HOME/Library/Application Support/pro_bridge_codex/app/scripts/unix/doctor.sh"

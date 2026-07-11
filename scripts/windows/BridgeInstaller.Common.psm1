@@ -81,7 +81,8 @@ function Find-BridgeChrome {
         "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
         "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
     ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
-    if ($candidates.Count -gt 0) { return $candidates[0] }
+    $candidateList = @($candidates)
+    if ($candidateList.Count -gt 0) { return $candidateList[0] }
     return $null
 }
 
