@@ -15,7 +15,7 @@ $required = @(
     "web_first_rule_installed=True"
 )
 foreach ($item in $required) {
-    if ($doctorOutput -notmatch "(?m)^$([regex]::Escape($item))$") {
+    if ($doctorOutput -notmatch "(?m)^$([regex]::Escape($item))\r?$") {
         throw "Installation verification failed: missing $item"
     }
 }
