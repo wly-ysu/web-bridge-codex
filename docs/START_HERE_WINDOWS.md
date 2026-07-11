@@ -29,6 +29,11 @@ It automatically:
 - installs the managed Web-First rule so natural-language requests use ChatGPT Web as the
   planner and Codex as the local executor.
 
+The two resulting Codex files are `%USERPROFILE%\.codex\config.toml` (MCP registration) and
+`%USERPROFILE%\.codex\AGENTS.md` (global routing rule). Both are required for automatic
+Web-First behavior. Details and troubleshooting are in
+[CODEX_GLOBAL_ROUTING.md](CODEX_GLOBAL_ROUTING.md).
+
 Before creating browser data, the installer displays the detected Chrome path and the AI
 Profile path, then asks `Create or use this dedicated AI Chrome Profile? [y/N]`. Enter `y`
 to approve creation or reuse. Only after approval does it create or reuse the isolated

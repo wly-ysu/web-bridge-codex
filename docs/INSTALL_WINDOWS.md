@@ -19,6 +19,27 @@ or test) stays local, and Web failures cannot cause an infinite route loop.
 It never copies the default Chrome profile, passwords, cookies, or ChatGPT login data.
 You sign in manually in the dedicated browser window.
 
+## Codex target paths and routing contract
+
+The installation is intentionally split into two user-level Codex files:
+
+```text
+%USERPROFILE%\.codex\config.toml  -> MCP process registration
+%USERPROFILE%\.codex\AGENTS.md    -> Global Web-First routing instruction
+```
+
+The MCP registration makes the tools available. The managed `AGENTS.md` block makes normal
+natural-language project requests use `route_to_web_lead`, with `ask_pro_architect` as the
+compatibility fallback. Both files must be associated with the same Windows user that runs Codex.
+
+The canonical MCP server name is `web-bridge-codex`. An earlier installation may contain the
+legacy `pro_bridge_codex` server name; the current installer migrates the legacy entry during an
+upgrade so only the canonical entry remains. Do not copy a full `config.toml` from another
+device: it can contain unrelated MCP registrations or personal settings.
+
+`%USERPROFILE%\.codex\AGENTS.override.md` takes precedence when it exists. If automatic routing
+does not occur, inspect that override before changing the managed rule.
+
 ## Install from a local checkout
 
 On a device that already has Codex, the shortest installation is one command:
@@ -69,6 +90,9 @@ profile: fast
 include_workspace_context: false
 question: 请只输出 WINDOWS_INSTALL_SUCCESS
 ```
+
+For a detailed redacted configuration shape and the difference between a registered MCP and an
+automatically routed request, see [CODEX_GLOBAL_ROUTING.md](CODEX_GLOBAL_ROUTING.md).
 
 ## Repair, upgrade, uninstall
 

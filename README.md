@@ -96,6 +96,24 @@ question:
 The expected reply is `WINDOWS_INSTALL_SUCCESS`. A successful local installation does not by
 itself prove ChatGPT Web login or browser automation; this final call is the real device check.
 
+### Required Codex integration layers
+
+The delivery has two required, separate layers. Both must be present after a Windows install:
+
+| Layer | Target path | Responsibility |
+|---|---|---|
+| MCP registration | `%USERPROFILE%\.codex\config.toml` | Lets Codex discover, start, and call the `web-bridge-codex` STDIO server. |
+| Global Web-First rule | `%USERPROFILE%\.codex\AGENTS.md` | Requires natural-language project requests to call Web Lead before Codex plans or implements work. |
+
+The installer creates a managed `web-bridge-codex` block in the user-level `AGENTS.md` without
+replacing unrelated instructions. The only local bypass is an explicit `本地执行：` prefix for a
+deterministic local command. This keeps Codex as the executor and ChatGPT Web as the planner for
+all normal project conversations.
+
+`MCP enabled` in the Codex UI proves only the first layer. It does not prove automatic routing.
+See [global routing and troubleshooting](docs/CODEX_GLOBAL_ROUTING.md) for the redacted config
+shape, target paths, and a cross-device verification procedure.
+
 ### CI and detailed docs
 
 GitHub Actions checks PowerShell and CMD Windows bootstrap installs, PowerShell syntax, Linux
@@ -104,6 +122,7 @@ perform real ChatGPT login or conversation tests.
 
 - [Windows quick start](docs/START_HERE_WINDOWS.md)
 - [Windows installation, repair, and uninstall](docs/INSTALL_WINDOWS.md)
+- [global Web-First routing and troubleshooting](docs/CODEX_GLOBAL_ROUTING.md)
 - [macOS installation](docs/INSTALL_MACOS.md)
 - [Linux installation](docs/INSTALL_LINUX.md)
 - [platform support and limits](docs/PLATFORM_SUPPORT.md)
