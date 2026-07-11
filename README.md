@@ -37,7 +37,7 @@ Set-ExecutionPolicy -Scope Process Bypass -Force; irm https://raw.githubusercont
 From Windows CMD, use:
 
 ```cmd
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.ps1 | iex"
+curl.exe -fsSL -o "%TEMP%\pro_bridge_codex_bootstrap.cmd" https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.cmd && call "%TEMP%\pro_bridge_codex_bootstrap.cmd"
 ```
 
 On a bare Windows device that already has Codex, this one command installs Python and

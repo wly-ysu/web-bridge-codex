@@ -31,10 +31,10 @@ The installer uses `winget` to install Python and Google Chrome if missing. If `
 is unavailable, it stops before registering MCP and displays the official download link;
 install the missing program and run the same command again.
 
-From `cmd.exe`, use the PowerShell-hosted equivalent:
+From `cmd.exe`, use the native CMD entrypoint:
 
 ```cmd
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.ps1 | iex"
+curl.exe -fsSL -o "%TEMP%\pro_bridge_codex_bootstrap.cmd" https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.cmd && call "%TEMP%\pro_bridge_codex_bootstrap.cmd"
 ```
 
 To install from a local checkout instead, open PowerShell in the repository and run:
