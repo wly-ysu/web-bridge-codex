@@ -1,0 +1,22 @@
+{
+  "name": "web-bridge-codex",
+  "version": "0.2.0",
+  "description": "Web-First workflow for the compiled web-bridge-codex MCP release.",
+  "author": {
+    "name": "web-bridge-codex"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Web Bridge Codex",
+    "shortDescription": "Route project planning to the installed Web Lead MCP.",
+    "longDescription": "Reusable Web-First workflow for the local compiled web-bridge-codex MCP release.",
+    "developerName": "web-bridge-codex",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": [
+      "Route this project request to the Web Lead first.",
+      "Check the installed Web Bridge Codex health.",
+      "Use the Web Lead plan before implementing this change."
+    ]
+  }
+}

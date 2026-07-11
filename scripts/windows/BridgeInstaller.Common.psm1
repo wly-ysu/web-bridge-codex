@@ -60,11 +60,11 @@ function Backup-BridgeFile([string]$Path) {
 
 function Get-BridgeServerProcesses {
     $paths = Get-BridgePaths
-    $serverPath = Join-Path $paths.App "server.py"
+    $appPath = $paths.App
     $matching = @()
     try {
         $matching = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
-            $_.CommandLine -and $_.CommandLine.IndexOf($serverPath, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+            $_.CommandLine -and $_.CommandLine.IndexOf($appPath, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
         })
     } catch {
         return @()
@@ -147,7 +147,7 @@ function ConvertTo-BridgeTomlString([string]$Value) {
     return '"' + $normalized + '"'
 }
 
-function Set-BridgeMcpRegistration([switch]$Remove) {
+function Set-BridgeMcpRegistration([switch]$Remove, [string]$Command = "", [string[]]$Arguments = @()) {
     $paths = Get-BridgePaths
     Ensure-BridgeDirectory $paths.CodexHome
     $configPath = $paths.CodexConfig
@@ -164,19 +164,17 @@ function Set-BridgeMcpRegistration([switch]$Remove) {
         Set-Content -LiteralPath $configPath -Value $newContent -Encoding utf8
         return "removed"
     }
-    $python = Join-Path $paths.Runtime "Scripts\python.exe"
-    $server = Join-Path $paths.App "server.py"
+    if ([string]::IsNullOrWhiteSpace($Command)) {
+        $Command = Join-Path $paths.Runtime "Scripts\python.exe"
+        $Arguments = @((Join-Path $paths.App "server.py"), "--config", $paths.ConfigFile)
+    }
     $logPath = Join-Path $paths.Logs "bridge_mcp.log"
     $entry = @(
         "[mcp_servers.web-bridge-codex]",
         "enabled = true",
-        "command = $(ConvertTo-BridgeTomlString $python)",
+        "command = $(ConvertTo-BridgeTomlString $Command)",
         "env = { WEB_BRIDGE_LOG_PATH = $(ConvertTo-BridgeTomlString $logPath) }",
-        "args = [",
-        "  $(ConvertTo-BridgeTomlString $server),",
-        '  "--config",',
-        "  $(ConvertTo-BridgeTomlString $paths.ConfigFile)",
-        "]"
+        "args = [$(($Arguments | ForEach-Object { ConvertTo-BridgeTomlString $_ }) -join ', ')]"
     ) -join [Environment]::NewLine
     $newContent = if ([string]::IsNullOrWhiteSpace($content)) { $entry } else { $content.TrimEnd() + [Environment]::NewLine + [Environment]::NewLine + $entry }
     $newContent += [Environment]::NewLine
@@ -232,8 +230,11 @@ recurse indefinitely.
 
 function Copy-BridgeApplication([string]$SourceDir) {
     $paths = Get-BridgePaths
-    if (-not (Test-Path -LiteralPath (Join-Path $SourceDir "server.py"))) {
-        throw "SourceDir does not contain server.py: $SourceDir"
+    $requiredRuntimePaths = @("server.py", "adapters", "core", "tools")
+    foreach ($relativePath in $requiredRuntimePaths) {
+        if (-not (Test-Path -LiteralPath (Join-Path $SourceDir $relativePath))) {
+            throw "SourceDir is missing required bridge runtime path '$relativePath': $SourceDir"
+        }
     }
     if (Test-Path -LiteralPath $paths.App) {
         $activeServers = @(Get-BridgeServerProcesses)
@@ -246,6 +247,11 @@ function Copy-BridgeApplication([string]$SourceDir) {
     $excluded = @(".git", "__pycache__", "logs", ".gptpro-browser", "browser_data", "runtime", "dist")
     Get-ChildItem -LiteralPath $SourceDir -Force | Where-Object { $excluded -notcontains $_.Name -and $_.Name -notin @("config.yaml", "bridge_mcp.log", "bridge_launch_matrix.log") } | ForEach-Object {
         Copy-Item -LiteralPath $_.FullName -Destination $paths.App -Recurse -Force
+    }
+    foreach ($relativePath in $requiredRuntimePaths) {
+        if (-not (Test-Path -LiteralPath (Join-Path $paths.App $relativePath))) {
+            throw "Bridge application copy is incomplete; installed runtime path is missing: $relativePath"
+        }
     }
 }
 

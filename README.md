@@ -16,25 +16,25 @@ it never copies or modifies your normal Chrome Profile or login data.
 | macOS | Preview | Requires Python 3.11+, Chrome/Chromium, and Codex | Non-GUI install smoke with a fake browser |
 | Linux | Preview | Requires Python 3.11+, Chrome/Chromium, and Codex | Ubuntu Docker install smoke with a fake browser |
 
-### Windows PowerShell
+### Windows PowerShell release install
 
 Run this in **PowerShell**, not CMD:
 
 ```powershell
-Set-ExecutionPolicy -Scope Process Bypass -Force; irm https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.ps1 | iex
+Set-ExecutionPolicy -Scope Process Bypass -Force; irm https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/release/bootstrap-windows.ps1 | iex
 ```
 
-The installer runs for the current user under `%LOCALAPPDATA%\web-bridge-codex`. It displays
+The release installer downloads the current Windows native package into `%LOCALAPPDATA%\web-bridge-codex`. The installed `app` directory contains a compiled launcher and runtime only: it does not contain `server.py`, `adapters`, `core`, or `tools`. It displays
 the detected browser and dedicated AI Profile path, then asks before creating or reusing that
 Profile. If Python or Chrome is missing, it attempts `winget`; success still depends on the
 machine's network, policy, and configured package sources.
 
-### Windows CMD
+### Windows CMD release install
 
 Run this in **cmd.exe**, not PowerShell:
 
 ```cmd
-curl.exe -fsSL -o "%TEMP%\web-bridge-codex_bootstrap.cmd" https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.cmd && call "%TEMP%\web-bridge-codex_bootstrap.cmd"
+curl.exe -fsSL -o "%TEMP%\web-bridge-codex_release_bootstrap.cmd" https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/release/bootstrap-windows.cmd && call "%TEMP%\web-bridge-codex_release_bootstrap.cmd"
 ```
 
 The CMD command enters the same Windows installer. Keep the complete terminal output if it

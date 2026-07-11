@@ -15,9 +15,13 @@ bad_indent_hello.cpp
 tmp_check_chrome_launch.py
 
 .agents/
+!.agents/
+!.agents/plugins/
+!.agents/plugins/marketplace.json
 
 # Local installation and release artifacts
 runtime/
 dist/
+release-output/
 packaging/output/
 *.bridge-backup-*

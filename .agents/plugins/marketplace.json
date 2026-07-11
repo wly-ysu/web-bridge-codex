@@ -1,0 +1,20 @@
+{
+  "name": "web-bridge-codex",
+  "interface": {
+    "displayName": "Web Bridge Codex"
+  },
+  "plugins": [
+    {
+      "name": "web-bridge-codex",
+      "source": {
+        "source": "local",
+        "path": "./plugins/web-bridge-codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

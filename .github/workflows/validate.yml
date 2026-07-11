@@ -81,6 +81,9 @@ jobs:
           if (Test-Path -LiteralPath $legacyRoot) { throw "Legacy installation directory was not removed." }
           $currentRoot = Join-Path $env:LOCALAPPDATA "web-bridge-codex"
           if (-not (Test-Path -LiteralPath (Join-Path $currentRoot "chrome-profile\profile-marker.txt"))) { throw "Legacy Chrome profile was not preserved." }
+          foreach ($relativePath in @("app\server.py", "app\adapters\gptpro_web.py", "app\core\context_manager.py", "app\tools\architect.py")) {
+            if (-not (Test-Path -LiteralPath (Join-Path $currentRoot $relativePath))) { throw "Installed bridge runtime is incomplete: $relativePath" }
+          }
           & (Join-Path $currentRoot "app\scripts\windows\verify-install.ps1")
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $installedYaml = Get-Content -LiteralPath (Join-Path $currentRoot "config\config.yaml") -Raw -Encoding utf8

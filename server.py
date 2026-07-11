@@ -747,7 +747,27 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Codex-ChatGPTWeb Bridge MCP server")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG_PATH), help="Path to config yaml.")
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging.")
+    parser.add_argument("--configure-user", action="store_true", help="Register this binary with Codex.")
+    parser.add_argument("--remove-user-config", action="store_true", help="Remove this binary from Codex.")
+    parser.add_argument("--codex-config", default="", help="Path to Codex config.toml for user setup.")
+    parser.add_argument("--agents-file", default="", help="Path to Codex AGENTS.md for user setup.")
+    parser.add_argument("--launcher", default="", help="Compiled bridge executable path for Codex setup.")
+    parser.add_argument("--log-path", default="", help="External bridge log path for Codex setup.")
     args = parser.parse_args()
+
+    if args.configure_user or args.remove_user_config:
+        if not args.codex_config or not args.agents_file:
+            parser.error("--codex-config and --agents-file are required for user setup")
+        if args.configure_user and not args.launcher:
+            parser.error("--launcher is required with --configure-user")
+        from deploy.common.configure_user import configure_mcp, configure_rules
+
+        configure_mcp(
+            Path(args.codex_config), args.launcher, [], args.remove_user_config, log_path=args.log_path
+        )
+        configure_rules(Path(args.agents_file), args.remove_user_config)
+        print("CONFIGURE_USER_OK" if args.configure_user else "CONFIGURE_USER_REMOVED")
+        return
 
     server = create_server(config_path=args.config, verbose=args.verbose)
     server.run(transport="stdio")

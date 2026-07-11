@@ -56,7 +56,9 @@ def replace_section(content: str, header: str, replacement: str | None) -> str:
     return (content + "\n\n" if content else "") + replacement.rstrip() + "\n"
 
 
-def configure_mcp(path: Path, command: str, args: list[str], remove: bool) -> None:
+def configure_mcp(
+    path: Path, command: str, args: list[str], remove: bool, log_path: str = ""
+) -> None:
     content = path.read_text(encoding="utf-8") if path.exists() else ""
     backup(path)
     for name in (LEGACY_MCP_NAME, MCP_NAME):
@@ -65,16 +67,17 @@ def configure_mcp(path: Path, command: str, args: list[str], remove: bool) -> No
     replacement = None
     if not remove:
         arguments = ", ".join(toml_quote(argument) for argument in args)
-        replacement = "\n".join(
-            [
-                header,
-                f"command = {toml_quote(command)}",
-                f"args = [{arguments}]",
-                "enabled = true",
-                "startup_timeout_sec = 30",
-                "tool_timeout_sec = 180",
-            ]
-        )
+        lines = [
+            header,
+            f"command = {toml_quote(command)}",
+            f"args = [{arguments}]",
+            "enabled = true",
+            "startup_timeout_sec = 30",
+            "tool_timeout_sec = 660",
+        ]
+        if log_path:
+            lines.append(f"env = {{ WEB_BRIDGE_LOG_PATH = {toml_quote(log_path)} }}")
+        replacement = "\n".join(lines)
     atomic_write(path, replace_section(content, header, replacement))
 
 
@@ -94,11 +97,12 @@ def main() -> int:
     parser.add_argument("--codex-config", type=Path, required=True)
     parser.add_argument("--agents-file", type=Path, required=True)
     parser.add_argument("--launcher", default="")
+    parser.add_argument("--log-path", default="")
     parser.add_argument("--remove", action="store_true")
     args = parser.parse_args()
     if not args.remove and not args.launcher:
         parser.error("--launcher is required unless --remove is used")
-    configure_mcp(args.codex_config, args.launcher, [], args.remove)
+    configure_mcp(args.codex_config, args.launcher, [], args.remove, args.log_path)
     configure_rules(args.agents_file, args.remove)
     print("CONFIGURE_USER_OK" if not args.remove else "CONFIGURE_USER_REMOVED")
     return 0

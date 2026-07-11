@@ -1,0 +1,66 @@
+name: Build native release packages
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: windows-latest, target: windows-x64 }
+          - { runner: ubuntu-latest, target: linux-x64 }
+          - { runner: macos-13, target: macos-x64 }
+          - { runner: macos-14, target: macos-arm64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - name: Build native one-folder archive
+        run: |
+          python -m pip install -r requirements.txt -r requirements-release.txt
+          python scripts/release/build_artifact.py --target ${{ matrix.target }}
+      - name: Install and probe Windows artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $sandbox = Join-Path $env:RUNNER_TEMP "web-bridge-native-artifact"
+          $env:LOCALAPPDATA = Join-Path $sandbox "localappdata"; $env:USERPROFILE = Join-Path $sandbox "userprofile"; $env:CODEX_HOME = Join-Path $sandbox "codex"
+          New-Item -ItemType Directory -Force -Path $env:CODEX_HOME | Out-Null
+          & scripts/release/install-windows.ps1 -ArtifactPath "release-output/web-bridge-codex-windows-x64.zip" -ChromePath "$env:SystemRoot\System32\cmd.exe" -NonInteractive -AcceptAiProfile -SkipBrowserLaunch
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $root = Join-Path $env:LOCALAPPDATA "web-bridge-codex"
+          python tests/release/test_mcp_tools_list.py (Join-Path $root "app\web-bridge-codex.exe") (Join-Path $root "config\config.yaml")
+      - name: Install and probe Unix artifact
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export HOME="$RUNNER_TEMP/web-bridge-native-home" XDG_DATA_HOME="$RUNNER_TEMP/web-bridge-native-data"
+          mkdir -p "$HOME/.codex" "$RUNNER_TEMP/browser"
+          printf '#!/bin/sh\nexit 0\n' > "$RUNNER_TEMP/browser/chrome"; chmod +x "$RUNNER_TEMP/browser/chrome"
+          sh scripts/release/install-unix.sh --artifact "release-output/web-bridge-codex-${{ matrix.target }}.zip" --chrome-path "$RUNNER_TEMP/browser/chrome" --non-interactive --accept-ai-profile --no-open-browser
+          python tests/release/test_mcp_tools_list.py "$XDG_DATA_HOME/web-bridge-codex/app/web-bridge-codex" "$XDG_DATA_HOME/web-bridge-codex/config/config.yaml"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-bridge-codex-${{ matrix.target }}
+          path: release-output/web-bridge-codex-${{ matrix.target }}.zip
+          if-no-files-found: error
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: release-assets, merge-multiple: true }
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" release-assets/*.zip --generate-notes
