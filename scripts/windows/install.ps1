@@ -55,12 +55,13 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Could not install bridge dependencies." }
 
     $registration = Set-BridgeMcpRegistration
-    Set-BridgeWebFirstRule
+    $webFirstRule = Set-BridgeWebFirstRule
     $version = (Get-Content -LiteralPath (Join-Path $SourceDir "VERSION") -Raw).Trim()
     Write-Host ""
     Write-Host "web-bridge-codex $version installed for this Windows user."
     Write-Host "Legacy migration: $migration"
     Write-Host "MCP registration: $registration"
+    Write-Host "Web-First rule: $webFirstRule"
     Write-Host "Configuration: $($paths.ConfigFile)"
     Write-Host "Chrome profile: $($paths.Profile)"
     if (-not $SkipBrowserLaunch) {

@@ -17,6 +17,6 @@ if ($ReinstallDependencies) {
     if ($LASTEXITCODE -ne 0) { throw "Dependency repair failed." }
 }
 Set-BridgeMcpRegistration | Out-Null
-Set-BridgeWebFirstRule
+$webFirstRule = Set-BridgeWebFirstRule
 if ($LaunchBrowser) { & (Join-Path $PSScriptRoot "launch-web-profile.ps1") }
-Write-Host "Repair completed. Restart Codex to reload the MCP registration."
+Write-Host "Repair completed. Web-First rule: $webFirstRule. Restart Codex to reload the MCP registration."

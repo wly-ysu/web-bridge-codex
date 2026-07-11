@@ -49,12 +49,31 @@ jobs:
           $sandbox = Join-Path $env:RUNNER_TEMP "pro-bridge-powershell-bootstrap-smoke"
           $env:LOCALAPPDATA = Join-Path $sandbox "localappdata"
           $env:USERPROFILE = Join-Path $sandbox "userprofile"
-          New-Item -ItemType Directory -Force -Path (Join-Path $env:USERPROFILE ".codex") | Out-Null
+          $env:CODEX_HOME = Join-Path $sandbox "custom-codex-home"
+          New-Item -ItemType Directory -Force -Path $env:CODEX_HOME | Out-Null
           $legacyRoot = Join-Path $env:LOCALAPPDATA "pro_bridge_codex"
           New-Item -ItemType Directory -Force -Path (Join-Path $legacyRoot "config"), (Join-Path $legacyRoot "chrome-profile") | Out-Null
           Set-Content -LiteralPath (Join-Path $legacyRoot "config\config.yaml") -Value "web_adapter:`n  user_data_dir: '$($legacyRoot.Replace('\', '/'))/chrome-profile'" -Encoding utf8
           Set-Content -LiteralPath (Join-Path $legacyRoot "chrome-profile\profile-marker.txt") -Value "preserve-profile" -Encoding ascii
-          Set-Content -LiteralPath (Join-Path $env:USERPROFILE ".codex\config.toml") -Value "[mcp_servers.pro_bridge_codex]`nenabled = true" -Encoding utf8
+          $codexConfig = Join-Path $env:CODEX_HOME "config.toml"
+          Set-Content -LiteralPath $codexConfig -Value @'
+[mcp_servers.node_repl]
+command = "node"
+
+[mcp_servers.pro_bridge_codex]
+enabled = true
+
+[mcp_servers.pro_bridge_codex.tools.route_to_web_lead]
+approval_mode = "never"
+'@ -Encoding utf8
+          $codexRules = Join-Path $env:CODEX_HOME "AGENTS.md"
+          Set-Content -LiteralPath $codexRules -Value @'
+# User-owned instruction
+
+<!-- pro_bridge_codex:web-first:start -->
+legacy managed rule
+<!-- pro_bridge_codex:web-first:end -->
+'@ -Encoding utf8
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\windows\bootstrap.ps1 -Repository wly-ysu/web-bridge-codex -Ref main -NonInteractive -AcceptAiProfile -SkipBrowserLaunch
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (Test-Path -LiteralPath $legacyRoot) { throw "Legacy installation directory was not removed." }
@@ -62,6 +81,18 @@ jobs:
           if (-not (Test-Path -LiteralPath (Join-Path $currentRoot "chrome-profile\profile-marker.txt"))) { throw "Legacy Chrome profile was not preserved." }
           & (Join-Path $currentRoot "app\scripts\windows\verify-install.ps1")
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $installedConfig = Get-Content -LiteralPath $codexConfig -Raw -Encoding utf8
+          if ($installedConfig -notmatch '(?m)^\[mcp_servers\.node_repl\]') { throw "Unrelated MCP registration was not preserved." }
+          if ($installedConfig -match '(?m)^\[mcp_servers\.pro_bridge_codex(?:\.|\])') { throw "Legacy MCP parent or child tables were not fully removed." }
+          if ([regex]::Matches($installedConfig, '(?m)^\[mcp_servers\.web-bridge-codex\]').Count -ne 1) { throw "Expected exactly one canonical MCP registration." }
+          & (Join-Path $currentRoot "runtime\Scripts\python.exe") -c "import pathlib, sys, tomllib; tomllib.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8-sig'))" $codexConfig
+          if ($LASTEXITCODE -ne 0) { throw "Updated config.toml is not valid TOML." }
+          $installedRules = Get-Content -LiteralPath $codexRules -Raw -Encoding utf8
+          if ($installedRules -notmatch '# User-owned instruction') { throw "User-owned AGENTS.md content was not preserved." }
+          if ($installedRules -match 'pro_bridge_codex:web-first') { throw "Legacy managed Web-First block was not migrated." }
+          if ([regex]::Matches($installedRules, 'web-bridge-codex:web-first:start').Count -ne 1) { throw "Expected exactly one canonical managed Web-First block." }
+          if ((Get-ChildItem -LiteralPath $env:CODEX_HOME -Filter 'config.toml.bridge-backup-*').Count -lt 1) { throw "Existing config.toml was not backed up before modification." }
+          if ((Get-ChildItem -LiteralPath $env:CODEX_HOME -Filter 'AGENTS.md.bridge-backup-*').Count -lt 1) { throw "Existing AGENTS.md was not backed up before modification." }
       - name: Install through CMD bootstrap entry and verify
         shell: pwsh
         run: |
@@ -76,6 +107,22 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & (Join-Path $env:LOCALAPPDATA "web-bridge-codex\app\scripts\windows\verify-install.ps1")
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Reject malformed Web-First markers without modifying user content
+        shell: pwsh
+        run: |
+          $sandbox = Join-Path $env:RUNNER_TEMP "pro-bridge-managed-rule-conflict"
+          $env:LOCALAPPDATA = Join-Path $sandbox "localappdata"
+          $env:USERPROFILE = Join-Path $sandbox "userprofile"
+          $env:CODEX_HOME = Join-Path $sandbox "custom-codex-home"
+          New-Item -ItemType Directory -Force -Path $env:CODEX_HOME | Out-Null
+          $rulePath = Join-Path $env:CODEX_HOME "AGENTS.md"
+          $original = "# User-owned instruction`n<!-- web-bridge-codex:web-first:start -->`n"
+          Set-Content -LiteralPath $rulePath -Value $original -Encoding utf8
+          Import-Module (Join-Path $env:GITHUB_WORKSPACE "scripts\windows\BridgeInstaller.Common.psm1") -Force
+          $conflicted = $false
+          try { Set-BridgeWebFirstRule | Out-Null } catch { $conflicted = $_.Exception.Message -match 'Managed Web-First rule conflict' }
+          if (-not $conflicted) { throw "Malformed managed markers were not rejected." }
+          if ((Get-Content -LiteralPath $rulePath -Raw -Encoding utf8) -ne $original) { throw "Malformed AGENTS.md was modified despite conflict." }
   validate-unix-delivery:
     runs-on: ubuntu-latest
     steps:

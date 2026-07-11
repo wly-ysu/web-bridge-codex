@@ -22,7 +22,7 @@ foreach ($item in $required) {
 
 Import-Module (Join-Path $PSScriptRoot "BridgeInstaller.Common.psm1") -Force
 $paths = Get-BridgePaths
-$mcpConfig = Get-Content -LiteralPath $paths.CodexConfig -Raw
+$mcpConfig = Get-Content -LiteralPath $paths.CodexConfig -Raw -Encoding utf8
 $mcpSectionPattern = '(?ms)^\[mcp_servers\.web-bridge-codex\]\r?\n.*?(?=^\[|\z)'
 $mcpSections = [regex]::Matches($mcpConfig, $mcpSectionPattern)
 if ($mcpSections.Count -ne 1) {

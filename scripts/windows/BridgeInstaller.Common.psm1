@@ -3,6 +3,11 @@ $ErrorActionPreference = "Stop"
 
 function Get-BridgePaths {
     $root = Join-Path $env:LOCALAPPDATA "web-bridge-codex"
+    $codexHome = if ([string]::IsNullOrWhiteSpace($env:CODEX_HOME)) {
+        Join-Path $env:USERPROFILE ".codex"
+    } else {
+        $env:CODEX_HOME
+    }
     return [ordered]@{
         Root = $root
         LegacyRoot = Join-Path $env:LOCALAPPDATA "pro_bridge_codex"
@@ -14,9 +19,9 @@ function Get-BridgePaths {
         State = Join-Path $root "state"
         Profile = Join-Path $root "chrome-profile"
         Bin = Join-Path $root "bin"
-        CodexHome = Join-Path $env:USERPROFILE ".codex"
-        CodexConfig = Join-Path (Join-Path $env:USERPROFILE ".codex") "config.toml"
-        CodexRules = Join-Path (Join-Path $env:USERPROFILE ".codex") "AGENTS.md"
+        CodexHome = $codexHome
+        CodexConfig = Join-Path $codexHome "config.toml"
+        CodexRules = Join-Path $codexHome "AGENTS.md"
     }
 }
 
@@ -133,18 +138,16 @@ function Set-BridgeMcpRegistration([switch]$Remove) {
     Ensure-BridgeDirectory $paths.CodexHome
     $configPath = $paths.CodexConfig
     $content = if (Test-Path -LiteralPath $configPath) { Get-Content -LiteralPath $configPath -Raw -Encoding utf8 } else { "" }
-    $sectionPatterns = @(
-        '(?ms)^\[mcp_servers\.pro_bridge_codex\]\r?\n.*?(?=^\[|\z)',
-        '(?ms)^\[mcp_servers\.web-bridge-codex\]\r?\n.*?(?=^\[|\z)'
-    )
-    if ($sectionPatterns | Where-Object { $content -match $_ }) {
-        Backup-BridgeFile $configPath | Out-Null
-        foreach ($sectionPattern in $sectionPatterns) {
-            $content = [regex]::Replace($content, $sectionPattern, "").TrimEnd()
-        }
-    }
+    $originalContent = $content
+    # Match the bridge parent table and every descendant table. Removing only the parent leaves
+    # legacy entries such as [mcp_servers.pro_bridge_codex.tools.<name>] behind on upgrade.
+    $sectionPattern = '(?ms)^\[mcp_servers\.(?:pro_bridge_codex|web-bridge-codex)(?:\.[^\]]+)?\]\r?\n.*?(?=^\[|\z)'
+    $content = [regex]::Replace($content, $sectionPattern, "").TrimEnd()
     if ($Remove) {
-        Set-Content -LiteralPath $configPath -Value (($content.TrimEnd()) + [Environment]::NewLine) -Encoding utf8
+        $newContent = if ([string]::IsNullOrWhiteSpace($content)) { "" } else { $content.TrimEnd() + [Environment]::NewLine }
+        if ($newContent -eq $originalContent) { return "unchanged" }
+        if (Test-Path -LiteralPath $configPath) { Backup-BridgeFile $configPath | Out-Null }
+        Set-Content -LiteralPath $configPath -Value $newContent -Encoding utf8
         return "removed"
     }
     $python = Join-Path $paths.Runtime "Scripts\python.exe"
@@ -160,7 +163,10 @@ function Set-BridgeMcpRegistration([switch]$Remove) {
         "]"
     ) -join [Environment]::NewLine
     $newContent = if ([string]::IsNullOrWhiteSpace($content)) { $entry } else { $content.TrimEnd() + [Environment]::NewLine + [Environment]::NewLine + $entry }
-    Set-Content -LiteralPath $configPath -Value ($newContent + [Environment]::NewLine) -Encoding utf8
+    $newContent += [Environment]::NewLine
+    if ($newContent -eq $originalContent) { return "unchanged" }
+    if (Test-Path -LiteralPath $configPath) { Backup-BridgeFile $configPath | Out-Null }
+    Set-Content -LiteralPath $configPath -Value $newContent -Encoding utf8
     return "registered"
 }
 
@@ -169,15 +175,20 @@ function Set-BridgeWebFirstRule([switch]$Remove) {
     Ensure-BridgeDirectory $paths.CodexHome
     $rulePath = $paths.CodexRules
     $content = if (Test-Path -LiteralPath $rulePath) { Get-Content -LiteralPath $rulePath -Raw -Encoding utf8 } else { "" }
+    $originalContent = $content
+    $startPattern = '<!-- (?:pro_bridge_codex|web-bridge-codex):web-first:start -->'
+    $endPattern = '<!-- (?:pro_bridge_codex|web-bridge-codex):web-first:end -->'
+    $starts = [regex]::Matches($content, $startPattern).Count
+    $ends = [regex]::Matches($content, $endPattern).Count
+    if ($starts -ne $ends -or $starts -gt 1) {
+        throw "Managed Web-First rule conflict in $rulePath. Expected zero or one complete bridge rule block; no changes were made."
+    }
     $patterns = @(
         '(?ms)<!-- pro_bridge_codex:web-first:start -->.*?<!-- pro_bridge_codex:web-first:end -->\r?\n?',
         '(?ms)<!-- web-bridge-codex:web-first:start -->.*?<!-- web-bridge-codex:web-first:end -->\r?\n?'
     )
-    if ($patterns | Where-Object { $content -match $_ }) {
-        Backup-BridgeFile $rulePath | Out-Null
-        foreach ($pattern in $patterns) {
-            $content = [regex]::Replace($content, $pattern, "").TrimEnd()
-        }
+    foreach ($pattern in $patterns) {
+        $content = [regex]::Replace($content, $pattern, "").TrimEnd()
     }
     if (-not $Remove) {
         $managedRule = @'
@@ -195,7 +206,12 @@ recurse indefinitely.
 '@
         $content = if ([string]::IsNullOrWhiteSpace($content)) { $managedRule.TrimEnd() } else { $content.TrimEnd() + [Environment]::NewLine + [Environment]::NewLine + $managedRule.TrimEnd() }
     }
-    Set-Content -LiteralPath $rulePath -Value ($content.TrimEnd() + [Environment]::NewLine) -Encoding utf8
+    $newContent = if ([string]::IsNullOrWhiteSpace($content)) { "" } else { $content.TrimEnd() + [Environment]::NewLine }
+    if ($newContent -eq $originalContent) { return "unchanged" }
+    if (Test-Path -LiteralPath $rulePath) { Backup-BridgeFile $rulePath | Out-Null }
+    Set-Content -LiteralPath $rulePath -Value $newContent -Encoding utf8
+    if ($Remove) { return "removed" }
+    return "registered"
 }
 
 function Copy-BridgeApplication([string]$SourceDir) {
