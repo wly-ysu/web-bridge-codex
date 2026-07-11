@@ -10,10 +10,12 @@
    configuration files staged.
 6. Create and push an annotated Git tag such as `v0.2.0`.
 7. The `Release Windows package` GitHub workflow builds
-   `pro_bridge_codex-windows-x64-v<version>.zip`, generates `SHA256SUMS.txt`, and creates
+   `web-bridge-codex-windows-x64-v<version>.zip`, generates `SHA256SUMS.txt`, and creates
    the GitHub Release with generated notes.
 8. Add known issues, upgrade notes, and rollback instructions before marking the Release
    stable.
 
 Before the first stable release, test the installer on a device that was not used for
 development. Windows is the only supported installation target in this release line.
+
+

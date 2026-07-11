@@ -11,11 +11,14 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-MCP_NAME = "pro_bridge_codex"
-RULE_START = "<!-- pro_bridge_codex:web-first:start -->"
-RULE_END = "<!-- pro_bridge_codex:web-first:end -->"
+MCP_NAME = "web-bridge-codex"
+LEGACY_MCP_NAME = "pro_bridge_codex"
+RULE_START = "<!-- web-bridge-codex:web-first:start -->"
+RULE_END = "<!-- web-bridge-codex:web-first:end -->"
+LEGACY_RULE_START = "<!-- pro_bridge_codex:web-first:start -->"
+LEGACY_RULE_END = "<!-- pro_bridge_codex:web-first:end -->"
 RULE_TEXT = f"""{RULE_START}
-# pro_bridge_codex Web-First Rule
+# web-bridge-codex Web-First Rule
 
 Default all natural-language requests to `route_to_web_lead` first. If it is unavailable,
 use `ask_pro_architect`. Use the returned Web Lead plan before making decisions or editing
@@ -56,6 +59,8 @@ def replace_section(content: str, header: str, replacement: str | None) -> str:
 def configure_mcp(path: Path, command: str, args: list[str], remove: bool) -> None:
     content = path.read_text(encoding="utf-8") if path.exists() else ""
     backup(path)
+    for name in (LEGACY_MCP_NAME, MCP_NAME):
+        content = replace_section(content, f"[mcp_servers.{name}]", None).rstrip()
     header = f"[mcp_servers.{MCP_NAME}]"
     replacement = None
     if not remove:
@@ -76,8 +81,9 @@ def configure_mcp(path: Path, command: str, args: list[str], remove: bool) -> No
 def configure_rules(path: Path, remove: bool) -> None:
     content = path.read_text(encoding="utf-8") if path.exists() else ""
     backup(path)
-    pattern = rf"(?ms){re.escape(RULE_START)}.*?{re.escape(RULE_END)}\r?\n?"
-    content = re.sub(pattern, "", content).rstrip()
+    for start, end in ((LEGACY_RULE_START, LEGACY_RULE_END), (RULE_START, RULE_END)):
+        pattern = rf"(?ms){re.escape(start)}.*?{re.escape(end)}\r?\n?"
+        content = re.sub(pattern, "", content).rstrip()
     if not remove:
         content = (content + "\n\n" if content else "") + RULE_TEXT.rstrip()
     atomic_write(path, content.rstrip() + "\n")
@@ -100,3 +106,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+

@@ -1,4 +1,4 @@
-# pro_bridge_codex Requirements Roadmap
+# web-bridge-codex Requirements Roadmap
 
 ## Current Summary
 
@@ -453,3 +453,5 @@ Not yet daily-use complete:
 ```text
 tab cleanup, review/debug validation, natural language routing validation, model budget validation, and workspace context restoration.
 ```
+
+

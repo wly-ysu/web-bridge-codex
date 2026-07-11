@@ -50,9 +50,17 @@ jobs:
           $env:LOCALAPPDATA = Join-Path $sandbox "localappdata"
           $env:USERPROFILE = Join-Path $sandbox "userprofile"
           New-Item -ItemType Directory -Force -Path (Join-Path $env:USERPROFILE ".codex") | Out-Null
+          $legacyRoot = Join-Path $env:LOCALAPPDATA "pro_bridge_codex"
+          New-Item -ItemType Directory -Force -Path (Join-Path $legacyRoot "config"), (Join-Path $legacyRoot "chrome-profile") | Out-Null
+          Set-Content -LiteralPath (Join-Path $legacyRoot "config\config.yaml") -Value "web_adapter:`n  user_data_dir: '$($legacyRoot.Replace('\', '/'))/chrome-profile'" -Encoding utf8
+          Set-Content -LiteralPath (Join-Path $legacyRoot "chrome-profile\profile-marker.txt") -Value "preserve-profile" -Encoding ascii
+          Set-Content -LiteralPath (Join-Path $env:USERPROFILE ".codex\config.toml") -Value "[mcp_servers.pro_bridge_codex]`nenabled = true" -Encoding utf8
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\windows\bootstrap.ps1 -Repository wly-ysu/web-bridge-codex -Ref main -NonInteractive -AcceptAiProfile -SkipBrowserLaunch
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & (Join-Path $env:LOCALAPPDATA "pro_bridge_codex\app\scripts\windows\verify-install.ps1")
+          if (Test-Path -LiteralPath $legacyRoot) { throw "Legacy installation directory was not removed." }
+          $currentRoot = Join-Path $env:LOCALAPPDATA "web-bridge-codex"
+          if (-not (Test-Path -LiteralPath (Join-Path $currentRoot "chrome-profile\profile-marker.txt"))) { throw "Legacy Chrome profile was not preserved." }
+          & (Join-Path $currentRoot "app\scripts\windows\verify-install.ps1")
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install through CMD bootstrap entry and verify
         shell: pwsh
@@ -61,12 +69,12 @@ jobs:
           $env:LOCALAPPDATA = Join-Path $sandbox "localappdata"
           $env:USERPROFILE = Join-Path $sandbox "userprofile"
           New-Item -ItemType Directory -Force -Path (Join-Path $env:USERPROFILE ".codex") | Out-Null
-          $bootstrap = Join-Path $env:TEMP "pro_bridge_codex_bootstrap.cmd"
+          $bootstrap = Join-Path $env:TEMP "web-bridge-codex_bootstrap.cmd"
           curl.exe -fsSL -o $bootstrap https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.cmd
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cmd /c $bootstrap -Repository wly-ysu/web-bridge-codex -Ref main -NonInteractive -AcceptAiProfile -SkipBrowserLaunch
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & (Join-Path $env:LOCALAPPDATA "pro_bridge_codex\app\scripts\windows\verify-install.ps1")
+          & (Join-Path $env:LOCALAPPDATA "web-bridge-codex\app\scripts\windows\verify-install.ps1")
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
   validate-unix-delivery:
     runs-on: ubuntu-latest
@@ -97,4 +105,5 @@ jobs:
           chmod +x "$HOME/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
           export XDG_DATA_HOME="$RUNNER_TEMP/pro-bridge-macos-data"
           sh scripts/unix/install.sh --non-interactive --accept-ai-profile --no-open-browser
-          sh "$HOME/Library/Application Support/pro_bridge_codex/app/scripts/unix/doctor.sh"
+          sh "$HOME/Library/Application Support/web-bridge-codex/app/scripts/unix/doctor.sh"
+

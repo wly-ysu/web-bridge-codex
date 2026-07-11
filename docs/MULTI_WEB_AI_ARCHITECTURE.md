@@ -2,7 +2,7 @@
 
 ## Goal
 
-The long-term goal is to extend `pro_bridge_codex` from a single ChatGPT Web bridge into a multi-Web-AI planning system.
+The long-term goal is to extend `web-bridge-codex` from a single ChatGPT Web bridge into a multi-Web-AI planning system.
 
 Target workflow:
 
@@ -588,3 +588,5 @@ The goal is achieved when:
 Implement internal data structures and orchestration with only ChatGPT Web active.
 
 This keeps the current MVP stable while preparing the architecture for Doubao, DeepSeek, Xiaomi, and other free Web AI providers.
+
+

@@ -10,13 +10,13 @@ Set-ExecutionPolicy -Scope Process Bypass -Force; irm https://raw.githubusercont
 If starting from `cmd.exe`, run:
 
 ```cmd
-curl.exe -fsSL -o "%TEMP%\pro_bridge_codex_bootstrap.cmd" https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.cmd && call "%TEMP%\pro_bridge_codex_bootstrap.cmd"
+curl.exe -fsSL -o "%TEMP%\web-bridge-codex_bootstrap.cmd" https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.cmd && call "%TEMP%\web-bridge-codex_bootstrap.cmd"
 ```
 
 The installer automatically creates a local, isolated deployment at:
 
 ```text
-%LOCALAPPDATA%\pro_bridge_codex
+%LOCALAPPDATA%\web-bridge-codex
 ```
 
 It automatically:
@@ -25,7 +25,7 @@ It automatically:
 - installs Google Chrome with `winget` when missing;
 - installs bridge dependencies into an isolated virtual environment;
 - plans an isolated AI Chrome profile, never touching the normal Chrome profile;
-- registers the `pro_bridge_codex` MCP server in Codex;
+- registers the `web-bridge-codex` MCP server in Codex;
 - installs the managed Web-First rule so natural-language requests use ChatGPT Web as the
   planner and Codex as the local executor.
 
@@ -39,3 +39,5 @@ logging into ChatGPT once in that popup window. Then restart Codex and call
 If `winget` is unavailable, the installer stops safely and prints the official Python or
 Chrome download link. Install the missing program and run the exact same one-line command
 again; installation is idempotent and does not duplicate MCP entries or browser profiles.
+
+

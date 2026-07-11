@@ -5,11 +5,11 @@
 The Windows installer creates a user-only installation under:
 
 ```text
-%LOCALAPPDATA%\pro_bridge_codex
+%LOCALAPPDATA%\web-bridge-codex
 ```
 
 It creates an isolated Python runtime, installs the bridge dependencies, creates a
-dedicated Chrome profile, registers the `pro_bridge_codex` MCP server, and installs a
+dedicated Chrome profile, registers the `web-bridge-codex` MCP server, and installs a
 managed Web-First rule in `%USERPROFILE%\.codex\AGENTS.md`.
 
 The managed rule makes Web Lead the default for every natural-language Codex request.
@@ -34,7 +34,7 @@ install the missing program and run the same command again.
 From `cmd.exe`, use the native CMD entrypoint:
 
 ```cmd
-curl.exe -fsSL -o "%TEMP%\pro_bridge_codex_bootstrap.cmd" https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.cmd && call "%TEMP%\pro_bridge_codex_bootstrap.cmd"
+curl.exe -fsSL -o "%TEMP%\web-bridge-codex_bootstrap.cmd" https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.cmd && call "%TEMP%\web-bridge-codex_bootstrap.cmd"
 ```
 
 To install from a local checkout instead, open PowerShell in the repository and run:
@@ -95,3 +95,5 @@ The standard uninstall keeps the dedicated browser profile and local configurati
 If Python is absent, the installer attempts a user-scoped `winget` installation. If
 `winget` is unavailable, it explains the next manual action without changing system
 security policy.
+
+

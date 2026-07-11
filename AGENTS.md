@@ -1,11 +1,11 @@
-# pro_bridge_codex Agent Rules
+# web-bridge-codex Agent Rules
 
 # Highest Project Rule
 
 All natural-language Codex requests must interact with the Web GPT through MCP first
 unless they are explicitly deterministic local operations.
 
-This is the highest project-level workflow rule for `pro_bridge_codex`.
+This is the highest project-level workflow rule for `web-bridge-codex`.
 
 For any natural-language question, requirement, architecture discussion, code change,
 debugging request, review request, test strategy, implementation plan, correction, or

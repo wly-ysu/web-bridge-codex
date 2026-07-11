@@ -279,7 +279,7 @@ def create_server(config_path: str | Path = DEFAULT_CONFIG_PATH, verbose: bool =
     runtime_cfg = config.get("runtime", {})
     tool_timeout_seconds = int(runtime_cfg.get("tool_timeout_seconds", 180))
 
-    server = FastMCP("Codex-ChatGPTWeb Bridge")
+    server = FastMCP("web-bridge-codex")
 
     def _current_stage(fallback: str) -> str:
         if isinstance(adapter, GPTProWebAdapter):
@@ -750,3 +750,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

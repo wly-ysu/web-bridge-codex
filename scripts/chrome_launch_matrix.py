@@ -1,4 +1,4 @@
-"""Local Chrome launch lifecycle matrix for pro_bridge_codex."""
+"""Local Chrome launch lifecycle matrix for web-bridge-codex."""
 
 from __future__ import annotations
 
@@ -183,3 +183,5 @@ async def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(asyncio.run(main()))
+
+

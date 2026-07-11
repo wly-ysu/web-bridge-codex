@@ -30,7 +30,7 @@ The only direct-local exception is the explicit prefix:
 
 ## Purpose
 
-`pro_bridge_codex` is a Web-First Codex workflow.
+`web-bridge-codex` is a Web-First Codex workflow.
 
 Codex is the local executor. Web Lead is the planner.
 
@@ -207,3 +207,5 @@ next_action=route_back_to_web_lead
 ```
 
 Then Codex should call `route_to_web_lead` again with the correction or failure context.
+
+

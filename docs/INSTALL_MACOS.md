@@ -15,7 +15,7 @@ profile.
 curl -fsSL https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/unix/bootstrap.sh | sh
 ```
 
-It installs to `~/Library/Application Support/pro_bridge_codex`, opens a dedicated Chrome
+It installs to `~/Library/Application Support/web-bridge-codex`, opens a dedicated Chrome
 profile, and registers the local MCP server. Before the Profile is created, the installer
 shows the detected Chrome path and requested Profile path, then asks for approval. Enter
 `y` to create or reuse the isolated Profile; it then opens the login browser. Sign in to
@@ -27,6 +27,8 @@ If Chrome is in a nonstandard location, use a checkout and run:
 sh scripts/unix/install.sh --chrome-path="/path/to/Google Chrome"
 ```
 
-Use `sh ~/Library/Application\ Support/pro_bridge_codex/app/scripts/unix/doctor.sh` for a
+Use `sh ~/Library/Application\ Support/web-bridge-codex/app/scripts/unix/doctor.sh` for a
 local health report. Normal uninstall keeps the dedicated profile; add `--purge-profile`
 only if you want to remove its login data.
+
+

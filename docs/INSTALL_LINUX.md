@@ -14,7 +14,7 @@ The installer is user-level only. It does not use `sudo` or install system packa
 curl -fsSL https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/unix/bootstrap.sh | sh
 ```
 
-It installs to `${XDG_DATA_HOME:-$HOME/.local/share}/pro_bridge_codex`, opens a dedicated
+It installs to `${XDG_DATA_HOME:-$HOME/.local/share}/web-bridge-codex`, opens a dedicated
 Chrome profile, and registers the local MCP server. Before the Profile is created, the
 installer shows the detected browser path and requested Profile path, then asks for
 approval. Enter `y` to create or reuse the isolated Profile; it then opens the login
@@ -26,6 +26,8 @@ If Chrome/Chromium is in a nonstandard location, use a checkout and run:
 sh scripts/unix/install.sh --chrome-path="/path/to/chrome"
 ```
 
-Use `sh ~/.local/share/pro_bridge_codex/app/scripts/unix/doctor.sh` for a local health
+Use `sh ~/.local/share/web-bridge-codex/app/scripts/unix/doctor.sh` for a local health
 report when the default XDG data path is used. Normal uninstall preserves the dedicated
 profile; add `--purge-profile` only if you want to remove its login data.
+
+

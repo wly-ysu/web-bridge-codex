@@ -1,13 +1,9 @@
 # Codex-ChatGPTWeb Bridge
 
-`pro_bridge_codex` makes Codex the local executor and ChatGPT Web the default planner,
+`web-bridge-codex` makes Codex the local executor and ChatGPT Web the default planner,
 architect, reviewer, and debugger. It registers a local MCP server and a managed Web-First
 rule: natural-language project requests go to ChatGPT Web first, while explicit deterministic
 local work remains local.
-
-**Naming:** the public GitHub repository is `web-bridge-codex`; the stable MCP server ID,
-installation directory, and Codex settings entry are `pro_bridge_codex`. These names refer to
-the same Bridge. The MCP ID remains stable so existing installations do not break.
 
 ## Quick install
 
@@ -28,7 +24,7 @@ Run this in **PowerShell**, not CMD:
 Set-ExecutionPolicy -Scope Process Bypass -Force; irm https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.ps1 | iex
 ```
 
-The installer runs for the current user under `%LOCALAPPDATA%\pro_bridge_codex`. It displays
+The installer runs for the current user under `%LOCALAPPDATA%\web-bridge-codex`. It displays
 the detected browser and dedicated AI Profile path, then asks before creating or reusing that
 Profile. If Python or Chrome is missing, it attempts `winget`; success still depends on the
 machine's network, policy, and configured package sources.
@@ -38,7 +34,7 @@ machine's network, policy, and configured package sources.
 Run this in **cmd.exe**, not PowerShell:
 
 ```cmd
-curl.exe -fsSL -o "%TEMP%\pro_bridge_codex_bootstrap.cmd" https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.cmd && call "%TEMP%\pro_bridge_codex_bootstrap.cmd"
+curl.exe -fsSL -o "%TEMP%\web-bridge-codex_bootstrap.cmd" https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.cmd && call "%TEMP%\web-bridge-codex_bootstrap.cmd"
 ```
 
 The CMD command enters the same Windows installer. Keep the complete terminal output if it
@@ -82,7 +78,7 @@ verify ChatGPT login, MFA/SSO, account entitlement, Web page selectors, or a rea
 Completely quit and reopen Codex after installation and first login. Existing Codex processes do
 not reload newly registered MCP servers or rules automatically.
 
-Then confirm the `pro_bridge_codex` MCP server is enabled and call:
+Then confirm the `web-bridge-codex` MCP server is enabled and call:
 
 ```text
 bridge_health_check
@@ -160,7 +156,7 @@ Current MVP scope does not include:
 - long-context workflows
 - CDP daemon
 
-Before using the MVP, confirm Codex has loaded the `pro_bridge_codex` MCP server.
+Before using the MVP, confirm Codex has loaded the `web-bridge-codex` MCP server.
 If the MCP server code or tool declarations changed, restart Codex so the server is
 reloaded.
 
@@ -443,3 +439,4 @@ Recommended values are already included:
 - `#prompt-textarea`
 - `div[contenteditable='true']`
 - `[data-message-author-role='assistant']`
+

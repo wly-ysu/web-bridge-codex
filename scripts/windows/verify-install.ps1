@@ -23,13 +23,13 @@ foreach ($item in $required) {
 Import-Module (Join-Path $PSScriptRoot "BridgeInstaller.Common.psm1") -Force
 $paths = Get-BridgePaths
 $mcpConfig = Get-Content -LiteralPath $paths.CodexConfig -Raw
-$mcpSectionPattern = '(?ms)^\[mcp_servers\.pro_bridge_codex\]\r?\n.*?(?=^\[|\z)'
+$mcpSectionPattern = '(?ms)^\[mcp_servers\.web-bridge-codex\]\r?\n.*?(?=^\[|\z)'
 $mcpSections = [regex]::Matches($mcpConfig, $mcpSectionPattern)
 if ($mcpSections.Count -ne 1) {
-    throw "Installation verification failed: expected exactly one pro_bridge_codex MCP section in $($paths.CodexConfig)."
+    throw "Installation verification failed: expected exactly one web-bridge-codex MCP section in $($paths.CodexConfig)."
 }
 if ($mcpSections[0].Value -notmatch '(?m)^enabled\s*=\s*true\s*\r?$') {
-    throw "Installation verification failed: pro_bridge_codex must be explicitly enabled in $($paths.CodexConfig)."
+    throw "Installation verification failed: web-bridge-codex must be explicitly enabled in $($paths.CodexConfig)."
 }
 $python = Join-Path $paths.Runtime "Scripts\python.exe"
 Push-Location $paths.App
@@ -44,5 +44,7 @@ try {
     "WINDOWS_INSTALL_VERIFY_OK",
     "mcp_server_import=True",
     "mcp_enabled=True",
+    "mcp_server=web-bridge-codex",
     "next_action=Sign in to ChatGPT in the dedicated profile, restart Codex, then run ask_pro_architect with WINDOWS_INSTALL_SUCCESS."
 ) -join [Environment]::NewLine
+

@@ -12,4 +12,5 @@ RUN printf '#!/bin/sh\necho fake-chrome\n' > /home/bridge/bin/google-chrome && c
 ENV PATH=/home/bridge/bin:${PATH}
 WORKDIR /src
 RUN sh scripts/unix/install.sh --non-interactive --accept-ai-profile --no-open-browser
-RUN sh /home/bridge/.local/share/pro_bridge_codex/app/scripts/unix/doctor.sh
+RUN sh /home/bridge/.local/share/web-bridge-codex/app/scripts/unix/doctor.sh
+

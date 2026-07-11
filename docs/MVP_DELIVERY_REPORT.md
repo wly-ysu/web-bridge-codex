@@ -1,4 +1,4 @@
-# pro_bridge_codex MVP Delivery Report
+# web-bridge-codex MVP Delivery Report
 
 ## Verification Path
 
@@ -63,3 +63,5 @@ expected_marker_seen: true
 - Validate `review_pro_code` only after the `ask_pro_architect` MVP remains stable.
 - Validate context-enabled personal mode separately from the no-context smoke path.
 - Keep CDP daemon work out of the MVP branch until the Web path is reliable.
+
+

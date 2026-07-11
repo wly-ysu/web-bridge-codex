@@ -11,6 +11,7 @@ $ErrorActionPreference = "Stop"
 Import-Module (Join-Path $PSScriptRoot "BridgeInstaller.Common.psm1") -Force
 
 try {
+    $migration = Migrate-LegacyBridgeInstall
     $paths = Get-BridgePaths
     foreach ($path in @($paths.Root, $paths.Config, $paths.Logs, $paths.State, $paths.Bin)) { Ensure-BridgeDirectory $path }
     $python = if ($SkipPythonInstall) { Get-BridgePython } else { Install-BridgePythonIfNeeded }
@@ -57,7 +58,8 @@ try {
     Set-BridgeWebFirstRule
     $version = (Get-Content -LiteralPath (Join-Path $SourceDir "VERSION") -Raw).Trim()
     Write-Host ""
-    Write-Host "pro_bridge_codex $version installed for this Windows user."
+    Write-Host "web-bridge-codex $version installed for this Windows user."
+    Write-Host "Legacy migration: $migration"
     Write-Host "MCP registration: $registration"
     Write-Host "Configuration: $($paths.ConfigFile)"
     Write-Host "Chrome profile: $($paths.Profile)"
@@ -72,3 +74,4 @@ try {
     Write-Error "Installation failed: $($_.Exception.Message)"
     exit 1
 }
+

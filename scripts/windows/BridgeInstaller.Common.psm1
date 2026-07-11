@@ -2,9 +2,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 function Get-BridgePaths {
-    $root = Join-Path $env:LOCALAPPDATA "pro_bridge_codex"
+    $root = Join-Path $env:LOCALAPPDATA "web-bridge-codex"
     return [ordered]@{
         Root = $root
+        LegacyRoot = Join-Path $env:LOCALAPPDATA "pro_bridge_codex"
         App = Join-Path $root "app"
         Config = Join-Path $root "config"
         ConfigFile = Join-Path (Join-Path $root "config") "config.yaml"
@@ -17,6 +18,23 @@ function Get-BridgePaths {
         CodexConfig = Join-Path (Join-Path $env:USERPROFILE ".codex") "config.toml"
         CodexRules = Join-Path (Join-Path $env:USERPROFILE ".codex") "AGENTS.md"
     }
+}
+
+function Migrate-LegacyBridgeInstall {
+    $paths = Get-BridgePaths
+    if (-not (Test-Path -LiteralPath $paths.LegacyRoot)) { return "not_found" }
+    if (Test-Path -LiteralPath $paths.Root) {
+        throw "Both legacy ($($paths.LegacyRoot)) and current ($($paths.Root)) bridge directories exist. Installation stopped to avoid data loss; keep the current directory and remove or back up the legacy directory before retrying."
+    }
+    Move-Item -LiteralPath $paths.LegacyRoot -Destination $paths.Root -ErrorAction Stop
+    if (Test-Path -LiteralPath $paths.ConfigFile) {
+        $legacyForward = $paths.LegacyRoot.Replace("\", "/")
+        $currentForward = $paths.Root.Replace("\", "/")
+        $content = Get-Content -LiteralPath $paths.ConfigFile -Raw
+        $content = $content.Replace($paths.LegacyRoot, $paths.Root).Replace($legacyForward, $currentForward)
+        Set-Content -LiteralPath $paths.ConfigFile -Value $content -Encoding utf8
+    }
+    return "migrated"
 }
 
 function Ensure-BridgeDirectory([string]$Path) {
@@ -115,10 +133,15 @@ function Set-BridgeMcpRegistration([switch]$Remove) {
     Ensure-BridgeDirectory $paths.CodexHome
     $configPath = $paths.CodexConfig
     $content = if (Test-Path -LiteralPath $configPath) { Get-Content -LiteralPath $configPath -Raw } else { "" }
-    $sectionPattern = '(?ms)^\[mcp_servers\.pro_bridge_codex\]\r?\n.*?(?=^\[|\z)'
-    if ($content -match $sectionPattern) {
+    $sectionPatterns = @(
+        '(?ms)^\[mcp_servers\.pro_bridge_codex\]\r?\n.*?(?=^\[|\z)',
+        '(?ms)^\[mcp_servers\.web-bridge-codex\]\r?\n.*?(?=^\[|\z)'
+    )
+    if ($sectionPatterns | Where-Object { $content -match $_ }) {
         Backup-BridgeFile $configPath | Out-Null
-        $content = [regex]::Replace($content, $sectionPattern, "").TrimEnd()
+        foreach ($sectionPattern in $sectionPatterns) {
+            $content = [regex]::Replace($content, $sectionPattern, "").TrimEnd()
+        }
     }
     if ($Remove) {
         Set-Content -LiteralPath $configPath -Value (($content.TrimEnd()) + [Environment]::NewLine) -Encoding utf8
@@ -127,7 +150,7 @@ function Set-BridgeMcpRegistration([switch]$Remove) {
     $python = Join-Path $paths.Runtime "Scripts\python.exe"
     $server = Join-Path $paths.App "server.py"
     $entry = @(
-        "[mcp_servers.pro_bridge_codex]",
+        "[mcp_servers.web-bridge-codex]",
         "enabled = true",
         "command = $(ConvertTo-BridgeTomlString $python)",
         "args = [",
@@ -146,15 +169,20 @@ function Set-BridgeWebFirstRule([switch]$Remove) {
     Ensure-BridgeDirectory $paths.CodexHome
     $rulePath = $paths.CodexRules
     $content = if (Test-Path -LiteralPath $rulePath) { Get-Content -LiteralPath $rulePath -Raw } else { "" }
-    $pattern = '(?ms)<!-- pro_bridge_codex:web-first:start -->.*?<!-- pro_bridge_codex:web-first:end -->\r?\n?'
-    if ($content -match $pattern) {
+    $patterns = @(
+        '(?ms)<!-- pro_bridge_codex:web-first:start -->.*?<!-- pro_bridge_codex:web-first:end -->\r?\n?',
+        '(?ms)<!-- web-bridge-codex:web-first:start -->.*?<!-- web-bridge-codex:web-first:end -->\r?\n?'
+    )
+    if ($patterns | Where-Object { $content -match $_ }) {
         Backup-BridgeFile $rulePath | Out-Null
-        $content = [regex]::Replace($content, $pattern, "").TrimEnd()
+        foreach ($pattern in $patterns) {
+            $content = [regex]::Replace($content, $pattern, "").TrimEnd()
+        }
     }
     if (-not $Remove) {
         $managedRule = @'
-<!-- pro_bridge_codex:web-first:start -->
-# pro_bridge_codex Web-First Rule
+<!-- web-bridge-codex:web-first:start -->
+# web-bridge-codex Web-First Rule
 
 Default all natural-language requests to `route_to_web_lead` first. If it is unavailable,
 use `ask_pro_architect`. Use the returned Web Lead plan before making decisions or editing
@@ -163,7 +191,7 @@ code. Do not route an explicit deterministic local operation, a request beginnin
 Web routing to once per user turn. If Web MCP times out, is unavailable, or authentication
 fails, retry once at most, then continue locally with stated assumptions; never block or
 recurse indefinitely.
-<!-- pro_bridge_codex:web-first:end -->
+<!-- web-bridge-codex:web-first:end -->
 '@
         $content = if ([string]::IsNullOrWhiteSpace($content)) { $managedRule.TrimEnd() } else { $content.TrimEnd() + [Environment]::NewLine + [Environment]::NewLine + $managedRule.TrimEnd() }
     }
@@ -195,4 +223,5 @@ function Write-BridgeConfig([string]$SourceDir) {
     Set-Content -LiteralPath $paths.ConfigFile -Value $content -Encoding utf8
 }
 
-Export-ModuleMember -Function Get-BridgePaths, Ensure-BridgeDirectory, Backup-BridgeFile, Get-BridgePython, Install-BridgePythonIfNeeded, Find-BridgeChrome, Install-BridgeChromeIfNeeded, Set-BridgeMcpRegistration, Set-BridgeWebFirstRule, Copy-BridgeApplication, Write-BridgeConfig
+Export-ModuleMember -Function Get-BridgePaths, Migrate-LegacyBridgeInstall, Ensure-BridgeDirectory, Backup-BridgeFile, Get-BridgePython, Install-BridgePythonIfNeeded, Find-BridgeChrome, Install-BridgeChromeIfNeeded, Set-BridgeMcpRegistration, Set-BridgeWebFirstRule, Copy-BridgeApplication, Write-BridgeConfig
+

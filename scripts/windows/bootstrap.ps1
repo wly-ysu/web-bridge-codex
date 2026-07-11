@@ -8,7 +8,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("pro_bridge_codex-" + [Guid]::NewGuid().ToString("N"))
+$tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("web-bridge-codex-" + [Guid]::NewGuid().ToString("N"))
 try {
     New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
     $archive = Join-Path $tempRoot "source.zip"
@@ -23,3 +23,4 @@ try {
 } finally {
     if (Test-Path -LiteralPath $tempRoot) { Remove-Item -LiteralPath $tempRoot -Recurse -Force }
 }
+
