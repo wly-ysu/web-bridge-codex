@@ -21,7 +21,7 @@ jobs:
         shell: pwsh
         run: |
           $errors = @()
-          Get-ChildItem scripts/windows -Filter *.ps1 -File | ForEach-Object {
+          Get-ChildItem scripts/windows -File | Where-Object { $_.Extension -in '.ps1', '.psm1' } | ForEach-Object {
             $tokens = $null
             $parseErrors = $null
             [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$parseErrors) | Out-Null
@@ -38,6 +38,22 @@ jobs:
           foreach ($name in $forbidden) {
             if (Test-Path -LiteralPath $name) { Write-Host "Local file present and ignored: $name" }
           }
+  windows-install-smoke:
+    needs: validate
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install through CMD entry and verify
+        shell: pwsh
+        run: |
+          $sandbox = Join-Path $env:RUNNER_TEMP "pro-bridge-install-smoke"
+          $env:LOCALAPPDATA = Join-Path $sandbox "localappdata"
+          $env:USERPROFILE = Join-Path $sandbox "userprofile"
+          New-Item -ItemType Directory -Force -Path (Join-Path $env:USERPROFILE ".codex") | Out-Null
+          cmd /c scripts\windows\install.cmd -SourceDir "$PWD" -NonInteractive -AcceptAiProfile -SkipBrowserLaunch
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & (Join-Path $env:LOCALAPPDATA "pro_bridge_codex\app\scripts\windows\verify-install.ps1")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
   validate-unix-delivery:
     runs-on: ubuntu-latest
     steps:
@@ -52,3 +68,19 @@ jobs:
           for script in scripts/unix/*.sh; do
             sh -n "$script"
           done
+      - name: Run Linux container installation smoke test
+        run: docker build --file tests/install/Dockerfile.linux --tag pro-bridge-linux-smoke .
+  macos-install-smoke:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run non-GUI macOS installation smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.codex" "$HOME/Applications/Google Chrome.app/Contents/MacOS"
+          printf '#!/bin/sh\necho fake-chrome\n' > "$HOME/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+          chmod +x "$HOME/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+          export XDG_DATA_HOME="$RUNNER_TEMP/pro-bridge-macos-data"
+          sh scripts/unix/install.sh --non-interactive --accept-ai-profile --no-open-browser
+          sh "$XDG_DATA_HOME/pro_bridge_codex/app/scripts/unix/doctor.sh"

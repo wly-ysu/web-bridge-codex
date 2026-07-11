@@ -7,6 +7,12 @@ has Codex installed:
 Set-ExecutionPolicy -Scope Process Bypass -Force; irm https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.ps1 | iex
 ```
 
+If starting from `cmd.exe`, run:
+
+```cmd
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.ps1 | iex"
+```
+
 The installer automatically creates a local, isolated deployment at:
 
 ```text

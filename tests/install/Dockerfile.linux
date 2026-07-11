@@ -1,0 +1,15 @@
+FROM python:3.13-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends curl tar ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN useradd --create-home --shell /bin/sh bridge
+COPY . /src
+RUN chown -R bridge:bridge /src
+USER bridge
+ENV HOME=/home/bridge
+ENV XDG_DATA_HOME=/home/bridge/.local/share
+RUN mkdir -p /home/bridge/.codex /home/bridge/bin
+RUN printf '#!/bin/sh\necho fake-chrome\n' > /home/bridge/bin/google-chrome && chmod +x /home/bridge/bin/google-chrome
+ENV PATH=/home/bridge/bin:${PATH}
+WORKDIR /src
+RUN sh scripts/unix/install.sh --non-interactive --accept-ai-profile --no-open-browser
+RUN sh /home/bridge/.local/share/pro_bridge_codex/app/scripts/unix/doctor.sh

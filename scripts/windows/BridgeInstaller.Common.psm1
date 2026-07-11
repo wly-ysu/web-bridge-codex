@@ -105,7 +105,7 @@ function Install-BridgeChromeIfNeeded {
 }
 
 function ConvertTo-BridgeTomlString([string]$Value) {
-    $normalized = $Value.Replace("\\", "/").Replace('"', '\"')
+    $normalized = $Value.Replace("\", "/").Replace('"', '\"')
     return '"' + $normalized + '"'
 }
 
@@ -130,7 +130,7 @@ function Set-BridgeMcpRegistration([switch]$Remove) {
         "command = $(ConvertTo-BridgeTomlString $python)",
         "args = [",
         "  $(ConvertTo-BridgeTomlString $server),",
-        "  \"--config\",",
+        '  "--config",',
         "  $(ConvertTo-BridgeTomlString $paths.ConfigFile)",
         "]"
     ) -join [Environment]::NewLine
@@ -188,7 +188,7 @@ function Write-BridgeConfig([string]$SourceDir) {
     $template = Join-Path $SourceDir "config.example.yaml"
     if (-not (Test-Path -LiteralPath $template)) { throw "Missing configuration template: $template" }
     $content = Get-Content -LiteralPath $template -Raw
-    $profilePath = $paths.Profile.Replace("\\", "/")
+    $profilePath = $paths.Profile.Replace("\", "/")
     $content = [regex]::Replace($content, '(?m)^  user_data_dir:.*$', "  user_data_dir: `"$profilePath`"")
     Set-Content -LiteralPath $paths.ConfigFile -Value $content -Encoding utf8
 }

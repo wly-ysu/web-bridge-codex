@@ -34,6 +34,12 @@ From the public GitHub repository:
 Set-ExecutionPolicy -Scope Process Bypass -Force; irm https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.ps1 | iex
 ```
 
+From Windows CMD, use:
+
+```cmd
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/windows/bootstrap.ps1 | iex"
+```
+
 On a bare Windows device that already has Codex, this one command installs Python and
 Google Chrome through `winget` when either is missing, then creates the isolated bridge.
 The only manual action is ChatGPT login in the dedicated browser window. See
