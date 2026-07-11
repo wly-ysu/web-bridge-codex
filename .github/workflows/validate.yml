@@ -56,24 +56,26 @@ jobs:
           Set-Content -LiteralPath (Join-Path $legacyRoot "config\config.yaml") -Value "web_adapter:`n  user_data_dir: '$($legacyRoot.Replace('\', '/'))/chrome-profile'" -Encoding utf8
           Set-Content -LiteralPath (Join-Path $legacyRoot "chrome-profile\profile-marker.txt") -Value "preserve-profile" -Encoding ascii
           $codexConfig = Join-Path $env:CODEX_HOME "config.toml"
-          Set-Content -LiteralPath $codexConfig -Value @'
-[mcp_servers.node_repl]
-command = "node"
-
-[mcp_servers.pro_bridge_codex]
-enabled = true
-
-[mcp_servers.pro_bridge_codex.tools.route_to_web_lead]
-approval_mode = "never"
-'@ -Encoding utf8
+          $legacyConfig = @(
+            '[mcp_servers.node_repl]',
+            'command = "node"',
+            '',
+            '[mcp_servers.pro_bridge_codex]',
+            'enabled = true',
+            '',
+            '[mcp_servers.pro_bridge_codex.tools.route_to_web_lead]',
+            'approval_mode = "never"'
+          ) -join "`n"
+          Set-Content -LiteralPath $codexConfig -Value $legacyConfig -Encoding utf8
           $codexRules = Join-Path $env:CODEX_HOME "AGENTS.md"
-          Set-Content -LiteralPath $codexRules -Value @'
-# User-owned instruction
-
-<!-- pro_bridge_codex:web-first:start -->
-legacy managed rule
-<!-- pro_bridge_codex:web-first:end -->
-'@ -Encoding utf8
+          $legacyRules = @(
+            '# User-owned instruction',
+            '',
+            '<!-- pro_bridge_codex:web-first:start -->',
+            'legacy managed rule',
+            '<!-- pro_bridge_codex:web-first:end -->'
+          ) -join "`n"
+          Set-Content -LiteralPath $codexRules -Value $legacyRules -Encoding utf8
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\windows\bootstrap.ps1 -Repository wly-ysu/web-bridge-codex -Ref main -NonInteractive -AcceptAiProfile -SkipBrowserLaunch
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (Test-Path -LiteralPath $legacyRoot) { throw "Legacy installation directory was not removed." }
@@ -118,6 +120,7 @@ legacy managed rule
           $rulePath = Join-Path $env:CODEX_HOME "AGENTS.md"
           $original = "# User-owned instruction`n<!-- web-bridge-codex:web-first:start -->`n"
           Set-Content -LiteralPath $rulePath -Value $original -Encoding utf8
+          $original = Get-Content -LiteralPath $rulePath -Raw -Encoding utf8
           Import-Module (Join-Path $env:GITHUB_WORKSPACE "scripts\windows\BridgeInstaller.Common.psm1") -Force
           $conflicted = $false
           try { Set-BridgeWebFirstRule | Out-Null } catch { $conflicted = $_.Exception.Message -match 'Managed Web-First rule conflict' }
