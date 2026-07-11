@@ -769,9 +769,10 @@ if ($null -eq $procs) { "[]" } else { $procs }
             {"call_id": call_id, "args": launch_args},
         )
 
-        if not preflight["executable_path"]:
+        uses_browser_channel = bool(launch_kwargs.get("channel"))
+        if not preflight["executable_path"] and not uses_browser_channel:
             raise RuntimeError(self._raise_web_error("browser.launch", "executable_path_missing"))
-        if not preflight["executable_exists"]:
+        if not preflight["executable_exists"] and not uses_browser_channel:
             raise RuntimeError(
                 self._raise_web_error("browser.launch", "executable_missing", {"path": preflight["executable_path"]})
             )

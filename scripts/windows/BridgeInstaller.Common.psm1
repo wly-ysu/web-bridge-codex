@@ -227,15 +227,33 @@ function Copy-BridgeApplication([string]$SourceDir) {
     }
 }
 
-function Write-BridgeConfig([string]$SourceDir) {
+function Write-BridgeConfig([string]$SourceDir, [string]$ChromePath = "") {
     $paths = Get-BridgePaths
     Ensure-BridgeDirectory $paths.Config
-    if (Test-Path -LiteralPath $paths.ConfigFile) { return }
+    $chromePathForYaml = $ChromePath.Replace("\", "/")
+    if (Test-Path -LiteralPath $paths.ConfigFile) {
+        if (-not [string]::IsNullOrWhiteSpace($chromePathForYaml)) {
+            $content = Get-Content -LiteralPath $paths.ConfigFile -Raw -Encoding utf8
+            $updated = [regex]::Replace(
+                $content,
+                '(?m)^  executable_path:\s*""\s*$',
+                "  executable_path: `"$chromePathForYaml`""
+            )
+            if ($updated -ne $content) {
+                Backup-BridgeFile $paths.ConfigFile | Out-Null
+                Set-Content -LiteralPath $paths.ConfigFile -Value $updated -Encoding utf8
+            }
+        }
+        return
+    }
     $template = Join-Path $SourceDir "config.example.yaml"
     if (-not (Test-Path -LiteralPath $template)) { throw "Missing configuration template: $template" }
     $content = Get-Content -LiteralPath $template -Raw -Encoding utf8
     $profilePath = $paths.Profile.Replace("\", "/")
     $content = [regex]::Replace($content, '(?m)^  user_data_dir:.*$', "  user_data_dir: `"$profilePath`"")
+    if (-not [string]::IsNullOrWhiteSpace($chromePathForYaml)) {
+        $content = [regex]::Replace($content, '(?m)^  executable_path:.*$', "  executable_path: `"$chromePathForYaml`"")
+    }
     Set-Content -LiteralPath $paths.ConfigFile -Value $content -Encoding utf8
 }
 

@@ -41,7 +41,7 @@ try {
     if (-not $profileExists) { Ensure-BridgeDirectory $paths.Profile }
 
     Copy-BridgeApplication -SourceDir $SourceDir
-    Write-BridgeConfig -SourceDir $SourceDir
+    Write-BridgeConfig -SourceDir $SourceDir -ChromePath $chrome
 
     $venvPython = Join-Path $paths.Runtime "Scripts\python.exe"
     if (-not (Test-Path -LiteralPath $venvPython)) {

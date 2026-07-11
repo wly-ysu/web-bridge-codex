@@ -83,6 +83,8 @@ jobs:
           if (-not (Test-Path -LiteralPath (Join-Path $currentRoot "chrome-profile\profile-marker.txt"))) { throw "Legacy Chrome profile was not preserved." }
           & (Join-Path $currentRoot "app\scripts\windows\verify-install.ps1")
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $installedYaml = Get-Content -LiteralPath (Join-Path $currentRoot "config\config.yaml") -Raw -Encoding utf8
+          if ($installedYaml -notmatch '(?m)^  executable_path:\s*".+"\s*$') { throw "Installer did not write the detected Chrome executable path to config.yaml." }
           $installedConfig = Get-Content -LiteralPath $codexConfig -Raw -Encoding utf8
           if ($installedConfig -notmatch '(?m)^\[mcp_servers\.node_repl\]') { throw "Unrelated MCP registration was not preserved." }
           if ($installedConfig -match '(?m)^\[mcp_servers\.pro_bridge_codex(?:\.|\])') { throw "Legacy MCP parent or child tables were not fully removed." }
