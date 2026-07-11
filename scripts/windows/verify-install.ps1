@@ -15,7 +15,9 @@ $required = @(
     "web_first_rule_installed=True"
 )
 foreach ($item in $required) {
-    if ($doctorOutput -notcontains $item) { throw "Installation verification failed: missing $item" }
+    if ($doctorOutput -notmatch "(?m)^$([regex]::Escape($item))$") {
+        throw "Installation verification failed: missing $item"
+    }
 }
 
 Import-Module (Join-Path $PSScriptRoot "BridgeInstaller.Common.psm1") -Force
