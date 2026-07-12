@@ -18,7 +18,8 @@ it never copies or modifies your normal Chrome Profile or login data.
 
 ### Windows PowerShell release install
 
-Run this in **PowerShell**, not CMD:
+For an upgrade or repair, completely exit every Codex window first. The active MCP process can
+lock the previous compiled runtime. Then run this in **PowerShell**, not CMD:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass -Force; irm https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/release/bootstrap-windows.ps1 | iex

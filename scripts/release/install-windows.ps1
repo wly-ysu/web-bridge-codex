@@ -38,7 +38,13 @@ try {
             throw "Invalid Windows release archive."
         }
         if ((Get-BridgeServerProcesses).Count -gt 0) { throw "Close Codex before upgrading web-bridge-codex." }
-        if (Test-Path -LiteralPath $paths.App) { Remove-Item -LiteralPath $paths.App -Recurse -Force }
+        if (Test-Path -LiteralPath $paths.App) {
+            try {
+                Remove-Item -LiteralPath $paths.App -Recurse -Force -ErrorAction Stop
+            } catch {
+                throw "Cannot replace the existing web-bridge-codex runtime because a file is still in use. Completely exit every Codex window, wait a few seconds for its MCP process to stop, then rerun this installer. Original error: $($_.Exception.Message)"
+            }
+        }
         Move-Item -LiteralPath $package -Destination $paths.App
     } finally {
         Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue

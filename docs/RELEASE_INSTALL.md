@@ -6,7 +6,8 @@ The first run asks permission to create or reuse one dedicated Chrome profile. S
 
 ## Windows
 
-PowerShell:
+Before an upgrade or repair, completely exit every Codex window so its active MCP process releases
+the installed runtime. Then run in PowerShell:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass -Force; irm https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/release/bootstrap-windows.ps1 | iex
