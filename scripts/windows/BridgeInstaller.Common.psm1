@@ -255,7 +255,7 @@ function Copy-BridgeApplication([string]$SourceDir) {
     }
 }
 
-function Write-BridgeConfig([string]$SourceDir, [string]$ChromePath = "") {
+function Write-BridgeConfig([string]$SourceDir, [string]$ChromePath = "", [switch]$ForceRebuild) {
     $paths = Get-BridgePaths
     Ensure-BridgeDirectory $paths.Config
     $chromePathForYaml = $ChromePath.Replace("\", "/")
@@ -272,14 +272,19 @@ function Write-BridgeConfig([string]$SourceDir, [string]$ChromePath = "") {
         return $newContent
     }
 
+    if ($ForceRebuild) {
+        Set-Content -LiteralPath $paths.ConfigFile -Value (New-BridgeConfigContent) -Encoding utf8
+        Write-Host "CONFIG_REBUILT: replaced only the managed bridge configuration with the current template."
+        return
+    }
+
     if (Test-Path -LiteralPath $paths.ConfigFile) {
         $content = Get-Content -LiteralPath $paths.ConfigFile -Raw -Encoding utf8
-        $validLocalPrefix = $content -match '(?m)^  local_execution_prefix:\s*"[^"]*"\s*$'
-        $usesLegacyNamedModels = $content -match '(?m)^\s+preferred_models:\s*$'
-        if (-not $validLocalPrefix -or $usesLegacyNamedModels) {
-            Backup-BridgeFile $paths.ConfigFile | Out-Null
+        $schemaMatch = [regex]::Match($content, '(?m)^schema_version:\s*(\d+)\s*$')
+        $usesCurrentSchema = $schemaMatch.Success -and $schemaMatch.Groups[1].Value -eq '2'
+        if (-not $usesCurrentSchema) {
             Set-Content -LiteralPath $paths.ConfigFile -Value (New-BridgeConfigContent) -Encoding utf8
-            Write-Host "Migrated invalid or legacy bridge configuration to the current capability-based model policy."
+            Write-Host "CONFIG_REBUILT: replaced only the legacy bridge configuration with schema_version=2."
             return
         }
         if (-not [string]::IsNullOrWhiteSpace($chromePathForYaml)) {

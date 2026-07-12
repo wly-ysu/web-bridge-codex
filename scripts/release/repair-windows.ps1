@@ -25,6 +25,8 @@ try {
     if (-not (Test-Path -LiteralPath $launcher) -or -not (Test-Path -LiteralPath $template)) {
         throw "web-bridge-codex is not installed. Run the release installer first."
     }
+    Write-Host "This repair will replace only the managed bridge config and MCP registration."
+    Write-Host "It preserves the dedicated Chrome profile, other Codex MCP entries, user projects, and system Chrome."
 
     $chrome = Find-Chrome $ChromePath
     if (-not (Test-Path -LiteralPath $chrome)) { throw "Chrome executable was not found: $chrome" }
@@ -37,6 +39,9 @@ try {
     $content = [regex]::Replace($content, '(?m)^  user_data_dir:.*$', "  user_data_dir: `"$($profile.Replace('\', '/'))`"")
     $content = [regex]::Replace($content, '(?m)^  executable_path:.*$', "  executable_path: `"$($chrome.Replace('\', '/'))`"")
     Set-Content -LiteralPath $configPath -Value $content -Encoding utf8
+
+    & $launcher --validate-config --config $configPath
+    if ($LASTEXITCODE -ne 0) { throw "Rebuilt bridge config failed validation; Codex was not changed." }
 
     $codexHome = if ([string]::IsNullOrWhiteSpace($env:CODEX_HOME)) { Join-Path $env:USERPROFILE ".codex" } else { $env:CODEX_HOME }
     New-Item -ItemType Directory -Force -Path $codexHome | Out-Null

@@ -15,7 +15,7 @@ from mcp.client.stdio import stdio_client
 async def main() -> None:
     executable, config, codex_config = sys.argv[1:4]
     config_text = Path(config).read_text(encoding="utf-8")
-    if "capability_order:" not in config_text or "GPT-5.5" in config_text:
+    if "schema_version: 2" not in config_text or "capability_order:" not in config_text or "GPT-5.5" in config_text:
         raise SystemExit("Installed bridge config retained legacy fixed model names")
     registration = tomllib.loads(Path(codex_config).read_text(encoding="utf-8"))["mcp_servers"]["web-bridge-codex"]
     registered_args = registration.get("args", [])

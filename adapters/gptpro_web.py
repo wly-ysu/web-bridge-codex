@@ -18,6 +18,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from core.project_sessions import ProjectSessionRegistry, project_key, sanitize_conversation_url
+
 
 class GPTProWebAdapter:
     def __init__(self, workspace: str, config: dict, logger):
@@ -27,7 +29,12 @@ class GPTProWebAdapter:
         self.workspace = Path(workspace)
         self.runtime_cfg = config.get("runtime", {})
         self.browser_tabs_cfg = config.get("browser_tabs", {})
+        self.conversation_cfg = config.get("conversation_reuse", {})
         self.last_stage = "initialized"
+        profile_dir, _ = self._resolve_profile_dir()
+        state_file = self.conversation_cfg.get("state_file") or str(profile_dir.parent / "state" / "project-sessions.v1.json")
+        self.project_sessions = ProjectSessionRegistry(state_file)
+        self._project_locks: dict[str, asyncio.Lock] = {}
 
     def _set_stage(self, stage: str, **extra: object) -> None:
         self.last_stage = stage
@@ -900,7 +907,7 @@ if ($null -eq $procs) { "[]" } else { $procs }
             page_url_after_goto,
         )
 
-    async def _query_inner(self, prompt: str, base_url: str, prompt_timeout_ms: int, call_id: str, preflight: dict[str, object]) -> str:
+    async def _query_inner(self, prompt: str, base_url: str, prompt_timeout_ms: int, call_id: str, preflight: dict[str, object]) -> tuple[str, str | None]:
         browser = None
         page = None
         close_error: str | None = None
@@ -944,6 +951,16 @@ if ($null -eq $procs) { "[]" } else { $procs }
                     goto_stage_prefix="web",
                     goto_timeout_ms=120000,
                 )
+
+                expected_conversation = sanitize_conversation_url(base_url)
+                current_conversation = sanitize_conversation_url(getattr(page, "url", ""))
+                if expected_conversation and current_conversation != expected_conversation:
+                    error_text = self._raise_web_error(
+                        "conversation.open",
+                        "stored_conversation_not_available",
+                        {"expected_conversation": expected_conversation},
+                    )
+                    return error_text, None
 
                 self._set_stage("web.model_selection.start", call_id=call_id)
                 selected_model = await self._apply_model_policy(page, call_id)
@@ -1101,7 +1118,7 @@ if ($null -eq $procs) { "[]" } else { $procs }
                 self._set_stage("web.close.done", call_id=call_id, status="done", close_warning=close_error or "<none>")
 
         if close_error and result_text is None and error_text is None:
-            return self._raise_web_error("web.close", close_error, {"check_log": "bridge_mcp.log", "stage": "web.close"})
+            return self._raise_web_error("web.close", close_error, {"check_log": "bridge_mcp.log", "stage": "web.close"}), None
 
         if error_text is not None:
             warnings = []
@@ -1110,15 +1127,20 @@ if ($null -eq $procs) { "[]" } else { $procs }
             if close_error:
                 warnings.append(f"close_warning={close_error}")
             if warnings:
-                return "\n".join([error_text, *warnings])
-            return error_text
+                return "\n".join([error_text, *warnings]), None
+            return error_text, None
 
         if result_text is None:
-            return self._raise_web_error("web.query", "No response")
+            return self._raise_web_error("web.query", "No response"), None
         logging.info("[WEB_RETURN] %s", result_text[:120])
-        return result_text
+        return result_text, sanitize_conversation_url(getattr(page, "url", ""))
 
-    async def query(self, prompt: str) -> str:
+    async def query(
+        self,
+        prompt: str,
+        project_root: str | None = None,
+        conversation_mode: str = "reuse_or_create",
+    ) -> str:
         logging.info("[WEB] query enter")
         self._set_stage("web.query.enter")
         self._log("info", "ChatGPT Web adapter enabled")
@@ -1149,8 +1171,36 @@ if ($null -eq $procs) { "[]" } else { $procs }
 
         browser_launch_timeout = self._runtime_seconds("browser_launch_timeout_seconds", 45)
 
+        normalized_mode = str(conversation_mode or "reuse_or_create").lower()
+        if normalized_mode not in {"reuse_or_create", "new", "one_shot"}:
+            return self._raise_web_error("conversation.mode", "invalid_conversation_mode", {"conversation_mode": conversation_mode})
+        reuse_enabled = bool(self.conversation_cfg.get("enabled", True)) and normalized_mode != "one_shot" and bool(project_root)
+        session = None
+        key = ""
+        if reuse_enabled:
+            key = project_key(project_root or self.workspace)
+            session = self.project_sessions.get(key) if normalized_mode == "reuse_or_create" else None
+            if session:
+                base_url = session.conversation_url
+                self._set_stage("web.conversation.reuse", call_id=call_id, project_key=key, generation=session.generation)
+            else:
+                self._set_stage("web.conversation.new", call_id=call_id, project_key=key, mode=normalized_mode)
+
+        lock = self._project_locks.setdefault(key, asyncio.Lock()) if reuse_enabled else None
         try:
-            return await self._query_inner(prompt, base_url, prompt_timeout_ms, call_id, preflight)
+            if lock:
+                async with lock:
+                    result, observed_url = await self._query_inner(prompt, base_url, prompt_timeout_ms, call_id, preflight)
+                    if result.startswith("[WEB_ERROR]") and session and "stage=conversation.open" in result and bool(self.conversation_cfg.get("recover_once_on_definitive_invalid", True)):
+                        self.project_sessions.mark_invalid(key)
+                        self._set_stage("web.conversation.recover", call_id=call_id, project_key=key)
+                        result, observed_url = await self._query_inner(prompt, self.cfg.get("base_url", "https://chatgpt.com"), prompt_timeout_ms, call_id, preflight)
+                    if not result.startswith("[WEB_ERROR]") and observed_url:
+                        saved = self.project_sessions.put(project_root or self.workspace, observed_url, prior=session)
+                        self._set_stage("web.conversation.saved", call_id=call_id, project_key=saved.project_key, generation=saved.generation)
+                    return result
+            result, _ = await self._query_inner(prompt, base_url, prompt_timeout_ms, call_id, preflight)
+            return result
         except Exception as exc:
             if isinstance(exc, RuntimeError) and str(exc).startswith("[WEB_ERROR]"):
                 return str(exc)
@@ -2158,7 +2208,11 @@ if ($null -eq $procs) { "[]" } else { $procs }
                 self._flush_log_handlers()
                 return current_text, None
 
-            if response_started and current_text.strip() and not generating and now - last_progress_at >= stable_seconds:
+            # A caller-provided success marker is a verification contract. In a
+            # reused conversation the page can briefly expose an old completed
+            # assistant turn while a new empty turn is being mounted. Never turn
+            # that historical text into a false success.
+            if response_started and not expected_marker and current_text.strip() and not generating and now - last_progress_at >= stable_seconds:
                 logging.info(
                     "[WATCHDOG] call_id=%s expected_marker=%s expected_marker_seen=false response_completed=true",
                     call_id,
@@ -2181,6 +2235,18 @@ if ($null -eq $procs) { "[]" } else { $procs }
                 return None, error
 
             if response_started and now - last_progress_at >= no_progress_timeout:
+                if expected_marker:
+                    error = self._raise_web_error(
+                        "response.wait.expected_marker_missing",
+                        "assistant_response_completed_without_expected_marker",
+                        {
+                            "expected_marker": expected_marker,
+                            "assistant_count_before": assistant_count_before,
+                            "assistant_count_after": assistant_count_current,
+                            "no_progress_timeout_seconds": no_progress_timeout,
+                        },
+                    )
+                    return None, error
                 if current_text.strip() and not generating:
                     logging.info(
                         "[WATCHDOG] call_id=%s response_completed_after_no_progress=true no_progress_timeout_seconds=%s",

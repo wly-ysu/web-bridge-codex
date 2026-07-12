@@ -67,6 +67,7 @@ except Exception as exc:
 
 
 DEFAULT_CONFIG = {
+    "schema_version": 2,
     "adapter": "web",
     "git": {"max_diff_chars": 12000},
     "bridge": {"personal_mode": True, "allow_workspace_context": True},
@@ -202,6 +203,22 @@ def load_config(path: str | Path) -> dict[str, Any]:
         else:
             config[key] = value
     return config
+
+
+def validate_install_config(path: str | Path) -> Path:
+    """Validate the externally managed install config before Codex registers it."""
+    config_path = _resolve_config_path(path)
+    if not config_path.exists():
+        raise RuntimeError(f"CONFIG_INVALID: missing config file: {config_path}")
+    loaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    if not isinstance(loaded, dict):
+        raise RuntimeError(f"CONFIG_INVALID: config root must be a mapping: {config_path}")
+    if loaded.get("schema_version") != 2:
+        raise RuntimeError(f"CONFIG_INVALID: expected schema_version=2: {config_path}")
+    web = loaded.get("web_adapter")
+    if not isinstance(web, dict) or not str(web.get("user_data_dir", "")).strip():
+        raise RuntimeError(f"CONFIG_INVALID: web_adapter.user_data_dir is required: {config_path}")
+    return config_path
 
 
 def _tool_timeout_error(tool_name: str, stage: str, timeout_seconds: int) -> str:
@@ -408,6 +425,7 @@ is unavailable.
         mode: str | None = None,
         profile: str | None = None,
         execute_after_plan: bool = True,
+        conversation_mode: str = "reuse_or_create",
     ) -> str:
         """
         Ask Web Lead to refine a vague request and produce Codex execution steps.
@@ -443,6 +461,7 @@ is unavailable.
                     routed_message,
                     context_hints=None,
                     include_workspace_context=False,
+                    conversation_mode=conversation_mode,
                 ),
                 timeout=tool_timeout_seconds,
             )
@@ -473,6 +492,7 @@ available.
         question: str,
         context_hints: list[str] | None = None,
         include_workspace_context: bool = False,
+        conversation_mode: str = "reuse_or_create",
     ) -> str:
         """
         Ask ChatGPT Web to provide architectural guidance for a technical question.
@@ -493,6 +513,7 @@ available.
                     question,
                     context_hints=context_hints or None,
                     include_workspace_context=include_workspace_context,
+                    conversation_mode=conversation_mode,
                 ),
                 timeout=tool_timeout_seconds,
             )
@@ -600,6 +621,7 @@ No browser or heavy workspace read is used. Returns a compact health summary.
             f"fallback_to_current_model={model_strategy.get('fallback_to_current_model', True)}",
             f"tool_timeout_seconds={tool_timeout_seconds}",
             f"web_query_timeout_seconds={runtime_cfg.get('web_query_timeout_seconds', 150)}",
+            f"conversation_reuse_enabled={config.get('conversation_reuse', {}).get('enabled', True)}",
             "tools_loaded=route_to_web_lead,ask_pro_architect,review_pro_code,debug_pro_error,bridge_health_check,bridge_chrome_preflight,bridge_chrome_smoke_test,bridge_chrome_lifecycle_test,bridge_tab_health_check,bridge_close_extra_tabs",
         ]
         result = "\n".join(lines)
@@ -753,7 +775,13 @@ def main() -> None:
     parser.add_argument("--agents-file", default="", help="Path to Codex AGENTS.md for user setup.")
     parser.add_argument("--launcher", default="", help="Compiled bridge executable path for Codex setup.")
     parser.add_argument("--log-path", default="", help="External bridge log path for Codex setup.")
+    parser.add_argument("--validate-config", action="store_true", help="Validate an installer-managed config and exit.")
     args = parser.parse_args()
+
+    if args.validate_config:
+        validated = validate_install_config(args.config)
+        print(f"CONFIG_VALIDATED\nconfig_path={validated}")
+        return
 
     if args.configure_user or args.remove_user_config:
         if not args.codex_config or not args.agents_file:

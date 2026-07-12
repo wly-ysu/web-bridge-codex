@@ -38,4 +38,4 @@ class ReviewerAgent:
             include_diff=diff,
         )
         prompt = self.prompt_router(git_utils.get_diff(workspace), context, focus=focus)
-        return await self.adapter.query(prompt)
+        return await self.adapter.query(prompt, project_root=str(workspace))

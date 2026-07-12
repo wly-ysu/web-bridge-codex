@@ -37,7 +37,7 @@ jobs:
           $legacyConfig = Join-Path $env:LOCALAPPDATA "web-bridge-codex\config\config.yaml"
           New-Item -ItemType Directory -Force -Path (Split-Path $legacyConfig) | Out-Null
           Set-Content -LiteralPath $legacyConfig -Value 'workflow:`n  local_execution_prefix: "broken`nweb_adapter:`n  model_strategy:`n    preferred_models:`n      - "GPT-5.5"' -Encoding utf8
-          & scripts/release/install-windows.ps1 -ArtifactPath "release-output/web-bridge-codex-windows-x64.zip" -ChromePath "$env:SystemRoot\System32\cmd.exe" -NonInteractive -AcceptAiProfile -SkipBrowserLaunch
+          & scripts/release/install-windows.ps1 -ArtifactPath "release-output/web-bridge-codex-windows-x64.zip" -ChromePath "$env:SystemRoot\System32\cmd.exe" -NonInteractive -AcceptAiProfile -AcceptManagedRuntimeReplacement -SkipBrowserLaunch
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $root = Join-Path $env:LOCALAPPDATA "web-bridge-codex"
           Set-Content -LiteralPath (Join-Path $root "config\config.yaml") -Value "broken: [`"yaml`"" -Encoding utf8

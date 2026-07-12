@@ -1,3 +1,4 @@
+schema_version: 2
 adapter: web
 
 git:
@@ -157,6 +158,13 @@ web_adapter:
     max_response_wall_time_seconds: 600
     poll_interval_seconds: 1
     completion_stable_seconds: 2
+
+conversation_reuse:
+  # One ChatGPT Web conversation per local project by default. State contains
+  # only a project hash and canonical conversation URL; never prompt text.
+  enabled: true
+  state_file: ""
+  recover_once_on_definitive_invalid: true
 
 browser_tabs:
   cleanup_before_query: true

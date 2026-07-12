@@ -97,6 +97,23 @@ question:
 The expected reply is `WINDOWS_INSTALL_SUCCESS`. A successful local installation does not by
 itself prove ChatGPT Web login or browser automation; this final call is the real device check.
 
+### Project conversation continuity
+
+By default, requests from the same local project reuse one ChatGPT Web conversation. This keeps
+the Web Lead's plans, constraints, and corrections together instead of creating a new Web chat
+for every MCP call. Different projects receive isolated conversations.
+
+The mapping is local to the dedicated bridge profile and is stored under its `state` directory.
+It contains only a hash of the project path and a canonical `https://chatgpt.com/c/<id>` URL. It
+never stores prompts, responses, cookies, or passwords. After a Codex or Chrome restart, the
+next request returns to that same conversation.
+
+Use `conversation_mode: new` only when you explicitly want a fresh Web discussion for the
+current project. Use `conversation_mode: one_shot` for a temporary request that must not change
+the project's saved conversation. If a saved Web conversation was explicitly deleted or is no
+longer accessible, the bridge creates one replacement conversation once; temporary network or
+generation failures do not create new chats.
+
 ### Required Codex integration layers
 
 The delivery has two required, separate layers. Both must be present after a Windows install:
@@ -346,6 +363,7 @@ Input:
 - `mode` (string, optional): workflow mode, default `web_first`.
 - `profile` (string, optional): `fast`, `balanced`, `deep_lite`, or `pro_deep`.
 - `execute_after_plan` (bool, default `true`): whether Codex should execute after receiving the plan.
+- `conversation_mode` (optional): `reuse_or_create` (default), `new`, or `one_shot`.
 
 Output:
 
@@ -357,6 +375,8 @@ Input:
 
 - `question` (string): design question.
 - `context_hints` (list[string], optional): files or hints to force include in context.
+- `include_workspace_context` (bool, default `false`): explicitly include repository context.
+- `conversation_mode` (optional): `reuse_or_create` (default), `new`, or `one_shot`.
 
 Output:
 

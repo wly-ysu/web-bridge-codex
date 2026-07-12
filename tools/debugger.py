@@ -22,4 +22,4 @@ class DebuggerAgent:
                 pass
         context = self.context_manager.collect(context_text, context_hints=context_hints, include_diff=False)
         prompt = self.prompt_router(error_text, context)
-        return await self.adapter.query(prompt)
+        return await self.adapter.query(prompt, project_root=str(self.context_manager.root))

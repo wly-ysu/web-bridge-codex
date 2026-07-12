@@ -7,7 +7,9 @@ The first run asks permission to create or reuse one dedicated Chrome profile. S
 ## Windows
 
 Before an upgrade or repair, completely exit every Codex window so its active MCP process releases
-the installed runtime. Then run in PowerShell:
+the installed runtime. An upgrade shows the exact managed runtime path it will replace and requires
+confirmation; it preserves the dedicated Chrome profile, all other MCP entries, user projects, and
+system Chrome. Then run in PowerShell:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass -Force; irm https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/release/bootstrap-windows.ps1 | iex
@@ -42,11 +44,15 @@ The installer selects the matching GitHub Release asset: `windows-x64`, `linux-x
 
 ## Verification
 
-After restarting Codex, call `bridge_health_check`. Then call `ask_pro_architect` with:
+After restarting Codex, create a new task and call `bridge_health_check` as an MCP tool. Then call
+`ask_pro_architect` as an MCP tool with:
 
 ```text
 请只输出 RELEASE_INSTALL_SUCCESS
 ```
+
+Success requires a visible MCP tool invocation and the returned answer. A plain assistant text
+reply containing the marker is not installation evidence.
 
 ## Contributor Install
 
