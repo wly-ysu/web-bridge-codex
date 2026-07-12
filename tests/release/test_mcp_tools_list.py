@@ -5,14 +5,22 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import tomllib
+from pathlib import Path
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 
 async def main() -> None:
-    executable, config = sys.argv[1:3]
-    async with stdio_client(StdioServerParameters(command=executable, args=["--config", config])) as streams:
+    executable, config, codex_config = sys.argv[1:4]
+    registration = tomllib.loads(Path(codex_config).read_text(encoding="utf-8"))["mcp_servers"]["web-bridge-codex"]
+    registered_args = registration.get("args", [])
+    if registered_args != ["--config", Path(config).resolve().as_posix()]:
+        raise SystemExit(f"Invalid installed MCP config args: {registered_args!r}")
+    if Path(registration["command"]).resolve() != Path(executable).resolve():
+        raise SystemExit("Installed MCP command does not point to the compiled executable")
+    async with stdio_client(StdioServerParameters(command=registration["command"], args=registered_args)) as streams:
         async with ClientSession(*streams) as session:
             await session.initialize()
             names = {tool.name for tool in (await session.list_tools()).tools}

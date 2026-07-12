@@ -35,7 +35,7 @@ unzip -q "$ARCHIVE" -d "$STAGE/unpack"; PACKAGE="$STAGE/unpack/web-bridge-codex-
 if command -v pgrep >/dev/null 2>&1 && pgrep -f "$ROOT/app" >/dev/null 2>&1; then fail "Close Codex before upgrading web-bridge-codex."; fi
 mkdir -p "$ROOT/config" "$ROOT/logs" "$PROFILE"; rm -rf "$ROOT/app"; mv "$PACKAGE" "$ROOT/app"; CONFIG="$ROOT/config/config.yaml"
 if [ ! -f "$CONFIG" ]; then awk -v profile="$PROFILE" -v chrome="$CHROME" '/^  user_data_dir:/ { print "  user_data_dir: \"" profile "\""; next } /^  executable_path:/ { print "  executable_path: \"" chrome "\""; next } { print }' "$ROOT/app/config.example.yaml" > "$CONFIG"; fi
-"$ROOT/app/web-bridge-codex" --configure-user --codex-config "$CODEX_HOME/config.toml" --agents-file "$CODEX_HOME/AGENTS.md" --launcher "$ROOT/app/web-bridge-codex" --log-path "$ROOT/logs/bridge_mcp.log"
+"$ROOT/app/web-bridge-codex" --configure-user --config "$CONFIG" --codex-config "$CODEX_HOME/config.toml" --agents-file "$CODEX_HOME/AGENTS.md" --launcher "$ROOT/app/web-bridge-codex" --log-path "$ROOT/logs/bridge_mcp.log"
 if [ -f "$ROOT/app/server.py" ] || [ -d "$ROOT/app/adapters" ] || [ -d "$ROOT/app/core" ] || [ -d "$ROOT/app/tools" ] || [ -d "$ROOT/app/deploy" ]; then fail "Release installation contains project source files and was rejected."; fi
 if [ "$SKIP_BROWSER_LAUNCH" != true ]; then "$CHROME" --user-data-dir="$PROFILE" --new-window https://chatgpt.com/ >/dev/null 2>&1 & fi
 printf '%s\n' "UNIX_RELEASE_INSTALL_OK" "install_root=$ROOT" "launcher=$ROOT/app/web-bridge-codex" "next_action=Sign in to ChatGPT once in the dedicated profile, then restart Codex."

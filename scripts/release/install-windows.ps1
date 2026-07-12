@@ -46,7 +46,7 @@ try {
 
     Write-BridgeConfig -SourceDir $paths.App -ChromePath $chrome
     $launcher = Join-Path $paths.App "web-bridge-codex.exe"
-    & $launcher --configure-user --codex-config $paths.CodexConfig --agents-file $paths.CodexRules --launcher $launcher --log-path (Join-Path $paths.Logs "bridge_mcp.log")
+    & $launcher --configure-user --config $paths.ConfigFile --codex-config $paths.CodexConfig --agents-file $paths.CodexRules --launcher $launcher --log-path (Join-Path $paths.Logs "bridge_mcp.log")
     if ($LASTEXITCODE -ne 0) { throw "Compiled bridge could not configure Codex." }
     if ((Test-Path (Join-Path $paths.App "server.py")) -or (Test-Path (Join-Path $paths.App "adapters")) -or (Test-Path (Join-Path $paths.App "core")) -or (Test-Path (Join-Path $paths.App "tools")) -or (Test-Path (Join-Path $paths.App "deploy"))) {
         throw "Release installation contains project source files and was rejected."

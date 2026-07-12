@@ -763,7 +763,11 @@ def main() -> None:
         from deploy.common.configure_user import configure_mcp, configure_rules
 
         configure_mcp(
-            Path(args.codex_config), args.launcher, [], args.remove_user_config, log_path=args.log_path
+            Path(args.codex_config),
+            args.launcher,
+            ["--config", str(Path(args.config).expanduser().resolve())],
+            args.remove_user_config,
+            log_path=args.log_path,
         )
         configure_rules(Path(args.agents_file), args.remove_user_config)
         print("CONFIGURE_USER_OK" if args.configure_user else "CONFIGURE_USER_REMOVED")
