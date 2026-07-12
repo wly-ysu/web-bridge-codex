@@ -37,7 +37,7 @@ jobs:
           & scripts/release/install-windows.ps1 -ArtifactPath "release-output/web-bridge-codex-windows-x64.zip" -ChromePath "$env:SystemRoot\System32\cmd.exe" -NonInteractive -AcceptAiProfile -SkipBrowserLaunch
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $root = Join-Path $env:LOCALAPPDATA "web-bridge-codex"
-          python tests/release/test_mcp_tools_list.py (Join-Path $root "app\web-bridge-codex.exe") (Join-Path $root "config\config.yaml") (Join-Path $env:USERPROFILE ".codex\config.toml")
+          python tests/release/test_mcp_tools_list.py (Join-Path $root "app\web-bridge-codex.exe") (Join-Path $root "config\config.yaml") (Join-Path $env:CODEX_HOME "config.toml")
       - name: Install and probe Unix artifact
         if: runner.os != 'Windows'
         shell: bash
