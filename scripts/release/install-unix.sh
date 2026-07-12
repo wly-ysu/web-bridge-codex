@@ -34,6 +34,7 @@ unzip -q "$ARCHIVE" -d "$STAGE/unpack"; PACKAGE="$STAGE/unpack/web-bridge-codex-
 [ -x "$EXE" ] && [ -f "$PACKAGE/config.example.yaml" ] || fail "Invalid release archive for $TARGET."
 if command -v pgrep >/dev/null 2>&1 && pgrep -f "$ROOT/app" >/dev/null 2>&1; then fail "Close Codex before upgrading web-bridge-codex."; fi
 mkdir -p "$ROOT/config" "$ROOT/logs" "$PROFILE"; rm -rf "$ROOT/app"; mv "$PACKAGE" "$ROOT/app"; CONFIG="$ROOT/config/config.yaml"
+if [ -f "$CONFIG" ] && { ! grep -Eq '^  local_execution_prefix:[[:space:]]*"[^"]*"[[:space:]]*$' "$CONFIG" || grep -Eq '^[[:space:]]+preferred_models:[[:space:]]*$' "$CONFIG"; }; then cp "$CONFIG" "$CONFIG.bridge-backup-$(date +%Y%m%d-%H%M%S)"; rm -f "$CONFIG"; printf '%s\n' "Migrated invalid or legacy bridge configuration to the current capability-based model policy."; fi
 if [ ! -f "$CONFIG" ]; then awk -v profile="$PROFILE" -v chrome="$CHROME" '/^  user_data_dir:/ { print "  user_data_dir: \"" profile "\""; next } /^  executable_path:/ { print "  executable_path: \"" chrome "\""; next } { print }' "$ROOT/app/config.example.yaml" > "$CONFIG"; fi
 "$ROOT/app/web-bridge-codex" --configure-user --config "$CONFIG" --codex-config "$CODEX_HOME/config.toml" --agents-file "$CODEX_HOME/AGENTS.md" --launcher "$ROOT/app/web-bridge-codex" --log-path "$ROOT/logs/bridge_mcp.log"
 if [ -f "$ROOT/app/server.py" ] || [ -d "$ROOT/app/adapters" ] || [ -d "$ROOT/app/core" ] || [ -d "$ROOT/app/tools" ] || [ -d "$ROOT/app/deploy" ]; then fail "Release installation contains project source files and was rejected."; fi

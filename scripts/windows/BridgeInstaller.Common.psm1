@@ -259,9 +259,30 @@ function Write-BridgeConfig([string]$SourceDir, [string]$ChromePath = "") {
     $paths = Get-BridgePaths
     Ensure-BridgeDirectory $paths.Config
     $chromePathForYaml = $ChromePath.Replace("\", "/")
-    if (Test-Path -LiteralPath $paths.ConfigFile) {
+    $template = Join-Path $SourceDir "config.example.yaml"
+    if (-not (Test-Path -LiteralPath $template)) { throw "Missing configuration template: $template" }
+    $profilePath = $paths.Profile.Replace("\", "/")
+
+    function New-BridgeConfigContent {
+        $newContent = Get-Content -LiteralPath $template -Raw -Encoding utf8
+        $newContent = [regex]::Replace($newContent, '(?m)^  user_data_dir:.*$', "  user_data_dir: `"$profilePath`"")
         if (-not [string]::IsNullOrWhiteSpace($chromePathForYaml)) {
-            $content = Get-Content -LiteralPath $paths.ConfigFile -Raw -Encoding utf8
+            $newContent = [regex]::Replace($newContent, '(?m)^  executable_path:.*$', "  executable_path: `"$chromePathForYaml`"")
+        }
+        return $newContent
+    }
+
+    if (Test-Path -LiteralPath $paths.ConfigFile) {
+        $content = Get-Content -LiteralPath $paths.ConfigFile -Raw -Encoding utf8
+        $validLocalPrefix = $content -match '(?m)^  local_execution_prefix:\s*"[^"]*"\s*$'
+        $usesLegacyNamedModels = $content -match '(?m)^\s+preferred_models:\s*$'
+        if (-not $validLocalPrefix -or $usesLegacyNamedModels) {
+            Backup-BridgeFile $paths.ConfigFile | Out-Null
+            Set-Content -LiteralPath $paths.ConfigFile -Value (New-BridgeConfigContent) -Encoding utf8
+            Write-Host "Migrated invalid or legacy bridge configuration to the current capability-based model policy."
+            return
+        }
+        if (-not [string]::IsNullOrWhiteSpace($chromePathForYaml)) {
             if ($content -match '(?m)^  executable_path:') {
                 $updated = [regex]::Replace(
                     $content,
@@ -282,15 +303,7 @@ function Write-BridgeConfig([string]$SourceDir, [string]$ChromePath = "") {
         }
         return
     }
-    $template = Join-Path $SourceDir "config.example.yaml"
-    if (-not (Test-Path -LiteralPath $template)) { throw "Missing configuration template: $template" }
-    $content = Get-Content -LiteralPath $template -Raw -Encoding utf8
-    $profilePath = $paths.Profile.Replace("\", "/")
-    $content = [regex]::Replace($content, '(?m)^  user_data_dir:.*$', "  user_data_dir: `"$profilePath`"")
-    if (-not [string]::IsNullOrWhiteSpace($chromePathForYaml)) {
-        $content = [regex]::Replace($content, '(?m)^  executable_path:.*$', "  executable_path: `"$chromePathForYaml`"")
-    }
-    Set-Content -LiteralPath $paths.ConfigFile -Value $content -Encoding utf8
+    Set-Content -LiteralPath $paths.ConfigFile -Value (New-BridgeConfigContent) -Encoding utf8
 }
 
 Export-ModuleMember -Function Get-BridgePaths, Migrate-LegacyBridgeInstall, Ensure-BridgeDirectory, Backup-BridgeFile, Get-BridgeServerProcesses, Get-BridgePython, Install-BridgePythonIfNeeded, Find-BridgeChrome, Install-BridgeChromeIfNeeded, Set-BridgeMcpRegistration, Set-BridgeWebFirstRule, Copy-BridgeApplication, Write-BridgeConfig
