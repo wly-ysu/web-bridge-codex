@@ -19,6 +19,19 @@ CMD:
 curl.exe -fsSL -o "%TEMP%\web-bridge-codex_release_bootstrap.cmd" https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/release/bootstrap-windows.cmd && call "%TEMP%\web-bridge-codex_release_bootstrap.cmd"
 ```
 
+## Windows repair
+
+If an old configuration was corrupted or Codex cannot expose the bridge tools after an
+otherwise successful installation, repair the installed configuration without downloading the
+native package again:
+
+```powershell
+irm https://raw.githubusercontent.com/wly-ysu/web-bridge-codex/main/scripts/release/repair-windows.ps1 | iex
+```
+
+This recreates only the bridge configuration and MCP registration. It preserves the dedicated
+Chrome Profile. Completely exit Codex after `WINDOWS_BRIDGE_REPAIR_OK`, then reopen it.
+
 ## macOS and Linux
 
 ```sh
