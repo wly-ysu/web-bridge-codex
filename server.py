@@ -492,12 +492,21 @@ available.
         question: str,
         context_hints: list[str] | None = None,
         include_workspace_context: bool = False,
+        profile: str | None = None,
         conversation_mode: str = "reuse_or_create",
     ) -> str:
         """
         Ask ChatGPT Web to provide architectural guidance for a technical question.
         """
-        _log_stage("mcp.ask_pro_architect.enter", {"include_workspace_context": include_workspace_context})
+        selected_profile = profile or str(config.get("web_lead", {}).get("default_profile", "balanced"))
+        _log_stage(
+            "mcp.ask_pro_architect.enter",
+            {
+                "include_workspace_context": include_workspace_context,
+                "profile": selected_profile,
+                "conversation_mode": conversation_mode,
+            },
+        )
         logging.info("[MCP] ask_pro_architect enter")
         last_stage = "mcp.ask_pro_architect.enter"
         try:

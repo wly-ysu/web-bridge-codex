@@ -75,7 +75,7 @@ class AdapterConversationTests(unittest.IsolatedAsyncioTestCase):
             adapter._body_text_preview = last
             answer, error = await adapter._wait_for_assistant_response(Page(), "call", [], [], 1, "OLD_SUCCESS", "NEW_SUCCESS")
             self.assertIsNone(answer)
-            self.assertIn("expected_marker_missing", error)
+            self.assertIn("stale_response_detected", error)
 
     async def test_new_empty_assistant_placeholder_is_not_returned_as_old_response(self):
         with tempfile.TemporaryDirectory() as temp:

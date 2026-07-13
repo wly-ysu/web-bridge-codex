@@ -26,10 +26,18 @@ async def main() -> None:
     async with stdio_client(StdioServerParameters(command=registration["command"], args=registered_args)) as streams:
         async with ClientSession(*streams) as session:
             await session.initialize()
-            names = {tool.name for tool in (await session.list_tools()).tools}
+            tools = (await session.list_tools()).tools
+            names = {tool.name for tool in tools}
     missing = {"bridge_health_check", "ask_pro_architect", "route_to_web_lead"} - names
     if missing:
         raise SystemExit(f"Missing compiled MCP tools: {', '.join(sorted(missing))}")
+    by_name = {tool.name: tool for tool in tools}
+    ask_schema = by_name["ask_pro_architect"].inputSchema
+    ask_props = ask_schema.get("properties", {}) if isinstance(ask_schema, dict) else {}
+    if "profile" not in ask_props:
+        raise SystemExit("ask_pro_architect schema is missing profile")
+    if "conversation_mode" not in ask_props:
+        raise SystemExit("ask_pro_architect schema is missing conversation_mode")
     print("COMPILED_MCP_TOOLS_LIST_OK")
 
 

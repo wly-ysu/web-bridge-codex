@@ -10,6 +10,23 @@ local work remains local.
 You need Codex and an internet connection. The installer uses a dedicated AI browser Profile;
 it never copies or modifies your normal Chrome Profile or login data.
 
+## Usage Mode Policy
+
+Daily Codex usage should use the GitHub release installer only. The MCP entry in
+`%USERPROFILE%\.codex\config.toml` should point to:
+
+```text
+%LOCALAPPDATA%\web-bridge-codex\app\web-bridge-codex.exe
+```
+
+The source checkout path, for example `D:\workspcase\pro_bridge_codex\server.py`, is only for
+local development and diagnostics. Do not keep normal Codex sessions coupled to the source tree.
+After changing MCP tool signatures, packaging, installer behavior, or browser automation, publish
+a new release and reinstall from GitHub before treating the change as delivered.
+
+See [docs/USAGE_MODE_POLICY.md](docs/USAGE_MODE_POLICY.md) for the full development and delivery
+rules.
+
 | Platform | Status | Dependency behavior | Automated coverage |
 |---|---|---|---|
 | Windows 10/11 x64 | Primary | Attempts `winget` for missing Python and Chrome | PowerShell and CMD clean-runner smoke tests |
@@ -376,6 +393,7 @@ Input:
 - `question` (string): design question.
 - `context_hints` (list[string], optional): files or hints to force include in context.
 - `include_workspace_context` (bool, default `false`): explicitly include repository context.
+- `profile` (string, optional): `fast`, `balanced`, `deep_lite`, or `pro_deep`.
 - `conversation_mode` (optional): `reuse_or_create` (default), `new`, or `one_shot`.
 
 Output:
