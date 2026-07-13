@@ -16,7 +16,7 @@ route_to_web_lead
 If unavailable, Codex must call:
 
 ```text
-ask_pro_architect
+ask_web_architect
 ```
 
 Codex must not answer project questions directly before Web GPT returns a plan,
@@ -77,7 +77,7 @@ route_to_web_lead
 If that tool is unavailable, use:
 
 ```text
-ask_pro_architect
+ask_web_architect
 ```
 
 ## Local Execution Exception
@@ -155,9 +155,9 @@ Use `balanced` by default.
 
 Use `fast` only for simple confirmation or explicitly fast requests.
 
-Use `deep_lite` for multi-module planning, multi-Web-AI design, or complex-but-not-Pro work.
+Use `deep_lite` for multi-module planning, multi-Web-AI design, or complex work that does not require the strongest mode.
 
-Use `pro_deep` only for explicit Pro requests or high-value 2h+ problems, such as patent strategy, safety-critical architecture, long-term roadmap decisions, or repeated unresolved root-cause analysis.
+Use `deep` only for explicit strongest-mode requests or high-value 2h+ problems, such as patent strategy, safety-critical architecture, long-term roadmap decisions, or repeated unresolved root-cause analysis.
 
 ## Expected Web Lead Output
 
@@ -207,5 +207,3 @@ next_action=route_back_to_web_lead
 ```
 
 Then Codex should call `route_to_web_lead` again with the correction or failure context.
-
-

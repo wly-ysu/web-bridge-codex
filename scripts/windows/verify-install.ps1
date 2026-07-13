@@ -45,6 +45,5 @@ try {
     "mcp_server_import=True",
     "mcp_enabled=True",
     "mcp_server=web-bridge-codex",
-    "next_action=Sign in to ChatGPT in the dedicated profile, restart Codex, then run ask_pro_architect with WINDOWS_INSTALL_SUCCESS."
+    "next_action=Sign in to ChatGPT in the dedicated profile, restart Codex, then run ask_web_architect with WINDOWS_INSTALL_SUCCESS."
 ) -join [Environment]::NewLine
-

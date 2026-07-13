@@ -16,7 +16,7 @@ WORKSPACE_ROOT = ROOT_DIR
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from adapters.gptpro_web import GPTProWebAdapter
+from adapters.chatgpt_web import ChatGPTWebAdapter
 
 
 def _load_config(config_path: Path) -> dict:
@@ -50,7 +50,7 @@ def _to_bool(value: str | bool | None, default: bool = False) -> bool:
     return v in {"1", "true", "yes", "y", "ok"}
 
 
-async def run_case(adapter: GPTProWebAdapter, name: str, params: dict) -> dict[str, object]:
+async def run_case(adapter: ChatGPTWebAdapter, name: str, params: dict) -> dict[str, object]:
     result = await adapter.chrome_lifecycle_test(**params)
     fields = _parse_result_text(result)
     passed = "BRIDGE_CHROME_LIFECYCLE_TEST_OK" in result
@@ -84,8 +84,8 @@ async def main() -> int:
     )
     logger = logging.getLogger("bridge-launch-matrix")
 
-    adapter = GPTProWebAdapter(str(WORKSPACE_ROOT), config, logger)
-    temp_profile = str(Path.home() / "gptpro_profile_tmp_smoke")
+    adapter = ChatGPTWebAdapter(str(WORKSPACE_ROOT), config, logger)
+    temp_profile = str(Path.home() / "web_bridge_profile_tmp_smoke")
 
     cases = [
         (
@@ -183,5 +183,3 @@ async def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(asyncio.run(main()))
-
-

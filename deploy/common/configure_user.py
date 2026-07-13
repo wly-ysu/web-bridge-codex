@@ -21,7 +21,7 @@ RULE_TEXT = f"""{RULE_START}
 # web-bridge-codex Web-First Rule
 
 Default all natural-language requests to `route_to_web_lead` first. If it is unavailable,
-use `ask_pro_architect`. Use the returned Web Lead plan before making decisions or editing
+use `ask_web_architect`. Use the returned Web Lead plan before making decisions or editing
 code. Do not route an explicit deterministic local operation, a request beginning with
 `本地执行：`, or any content that came from Web MCP / is already Web-reviewed. Limit automatic
 Web routing to once per user turn. If Web MCP times out, is unavailable, or authentication
@@ -110,4 +110,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

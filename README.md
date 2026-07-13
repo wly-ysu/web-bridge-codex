@@ -105,7 +105,7 @@ bridge_health_check
 Finally validate the real Web loop with:
 
 ```text
-ask_pro_architect
+ask_web_architect
 
 question:
 请只输出 WINDOWS_INSTALL_SUCCESS
@@ -190,22 +190,22 @@ Then configure Codex to load this MCP server in your environment.
 
 The current delivered MVP supports the real ChatGPT Web bridge for:
 
-- `ask_pro_architect`
+- `ask_web_architect`
 
 Verified path:
 
 ```text
 Codex
 -> MCP
--> ask_pro_architect
+-> ask_web_architect
 -> ChatGPT Web
 -> Codex return
 ```
 
 Current MVP scope does not include:
 
-- `review_pro_code`
-- `debug_pro_error`
+- `review_web_code`
+- `debug_web_error`
 - deep profile
 - long-context workflows
 - CDP daemon
@@ -217,7 +217,7 @@ reloaded.
 Minimal acceptance test:
 
 ```text
-Call ask_pro_architect:
+Call ask_web_architect:
 
 profile: fast
 include_workspace_context: false
@@ -276,10 +276,10 @@ If you only want local execution and do not want Web Lead planning, use:
 本地执行：查看 git diff
 ```
 
-Force Pro only for high-value deep work:
+Use the strongest Web mode only for high-value deep work:
 
 ```text
-用 Pro 深度分析这个长期架构决策
+用最强 Web 模型深度分析这个长期架构决策
 ```
 
 For the full workflow rules, see [docs/WEB_FIRST_WORKFLOW.md](docs/WEB_FIRST_WORKFLOW.md).
@@ -312,14 +312,14 @@ Model selection policy:
 
 | Scenario | Tool | Profile | Runtime model behavior |
 |---|---|---|---|
-| Simple judgment | `ask_pro_architect` | `fast` | Current available Web model, concise response |
-| Normal architecture | `ask_pro_architect` | `balanced` | Best available Web capability, balanced reasoning |
-| 30min-2h complex problem | `ask_pro_architect` | `deep_lite` | Best available Web capability, deeper reasoning |
-| 2h+ strategic problem | `ask_pro_architect` | `pro_deep` | Strongest available Web capability, then automatic downgrade |
-| Normal review | `review_pro_code` | `review` | Best available Web capability, balanced reasoning |
-| Critical review | `review_pro_code` | `pro_review` | Strongest available Web capability, then automatic downgrade |
-| Normal debug | `debug_pro_error` | `debug` | Best available Web capability, balanced reasoning |
-| Complex debug | `debug_pro_error` | `pro_debug` | Strongest available Web capability, then automatic downgrade |
+| Simple judgment | `ask_web_architect` | `fast` | Current available Web model, concise response |
+| Normal architecture | `ask_web_architect` | `balanced` | Best available Web capability, balanced reasoning |
+| 30min-2h complex problem | `ask_web_architect` | `deep_lite` | Best available Web capability, deeper reasoning |
+| 2h+ strategic problem | `ask_web_architect` | `deep` | Strongest available Web capability, then automatic downgrade |
+| Normal review | `review_web_code` | `review` | Best available Web capability, balanced reasoning |
+| Critical review | `review_web_code` | `critical_review` | Strongest available Web capability, then automatic downgrade |
+| Normal debug | `debug_web_error` | `debug` | Best available Web capability, balanced reasoning |
+| Complex debug | `debug_web_error` | `deep_debug` | Strongest available Web capability, then automatic downgrade |
 
 ## Model Budget Strategy
 
@@ -352,7 +352,7 @@ Users can explicitly request:
 - `profile=fast`
 - `profile=balanced`
 - `profile=deep_lite`
-- `profile=pro_deep`
+- `profile=deep`
 
 ## Web response waiting policy
 
@@ -378,7 +378,7 @@ Input:
 
 - `message` (string): natural-language user request or correction.
 - `mode` (string, optional): workflow mode, default `web_first`.
-- `profile` (string, optional): `fast`, `balanced`, `deep_lite`, or `pro_deep`.
+- `profile` (string, optional): `fast`, `balanced`, `deep_lite`, or `deep`.
 - `execute_after_plan` (bool, default `true`): whether Codex should execute after receiving the plan.
 - `conversation_mode` (optional): `reuse_or_create` (default), `new`, or `one_shot`.
 
@@ -386,21 +386,21 @@ Output:
 
 - Web Lead requirement refinement and Codex execution plan.
 
-### `ask_pro_architect`
+### `ask_web_architect`
 
 Input:
 
 - `question` (string): design question.
 - `context_hints` (list[string], optional): files or hints to force include in context.
 - `include_workspace_context` (bool, default `false`): explicitly include repository context.
-- `profile` (string, optional): `fast`, `balanced`, `deep_lite`, or `pro_deep`.
+- `profile` (string, optional): `fast`, `balanced`, `deep_lite`, or `deep`.
 - `conversation_mode` (optional): `reuse_or_create` (default), `new`, or `one_shot`.
 
 Output:
 
 - `"<answer>"`
 
-### `review_pro_code`
+### `review_web_code`
 
 Input:
 
@@ -412,7 +412,7 @@ Output:
 
 - `"<answer>"`
 
-### `debug_pro_error`
+### `debug_web_error`
 
 Input:
 
@@ -431,7 +431,7 @@ Output:
 
 ## 6) Web Adapter Real-Call Acceptance Checklist
 
-Goal: validate real path `Codex -> MCP -> gptpro_web.py -> Playwright -> Chrome Profile -> ChatGPT Web -> Codex`.
+Goal: validate real path `Codex -> MCP -> chatgpt_web.py -> Playwright -> Chrome Profile -> ChatGPT Web -> Codex`.
 
 ### Step 1: confirm real browser profile path
 
@@ -449,7 +449,7 @@ Goal: validate real path `Codex -> MCP -> gptpro_web.py -> Playwright -> Chrome 
 
 ### Step 3: non-technical probe question
 
-Call `ask_pro_architect` with:
+Call `ask_web_architect` with:
 
 ```
 请完成以下任务：
@@ -496,4 +496,3 @@ Recommended values are already included:
 - `#prompt-textarea`
 - `div[contenteditable='true']`
 - `[data-message-author-role='assistant']`
-

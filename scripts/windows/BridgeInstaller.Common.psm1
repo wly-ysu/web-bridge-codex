@@ -210,7 +210,7 @@ function Set-BridgeWebFirstRule([switch]$Remove) {
 # web-bridge-codex Web-First Rule
 
 Default all natural-language requests to `route_to_web_lead` first. If it is unavailable,
-use `ask_pro_architect`. Use the returned Web Lead plan before making decisions or editing
+use `ask_web_architect`. Use the returned Web Lead plan before making decisions or editing
 code. Do not route an explicit deterministic local operation, a request beginning with
 `本地执行：`, or any content that came from Web MCP / is already Web-reviewed. Limit automatic
 Web routing to once per user turn. If Web MCP times out, is unavailable, or authentication
@@ -244,7 +244,7 @@ function Copy-BridgeApplication([string]$SourceDir) {
         Remove-Item -LiteralPath $paths.App -Recurse -Force
     }
     Ensure-BridgeDirectory $paths.App
-    $excluded = @(".git", "__pycache__", "logs", ".gptpro-browser", "browser_data", "runtime", "dist")
+    $excluded = @(".git", "__pycache__", "logs", ".chatgpt-web-browser", "browser_data", "runtime", "dist")
     Get-ChildItem -LiteralPath $SourceDir -Force | Where-Object { $excluded -notcontains $_.Name -and $_.Name -notin @("config.yaml", "bridge_mcp.log", "bridge_launch_matrix.log") } | ForEach-Object {
         Copy-Item -LiteralPath $_.FullName -Destination $paths.App -Recurse -Force
     }
@@ -312,4 +312,3 @@ function Write-BridgeConfig([string]$SourceDir, [string]$ChromePath = "", [switc
 }
 
 Export-ModuleMember -Function Get-BridgePaths, Migrate-LegacyBridgeInstall, Ensure-BridgeDirectory, Backup-BridgeFile, Get-BridgeServerProcesses, Get-BridgePython, Install-BridgePythonIfNeeded, Find-BridgeChrome, Install-BridgeChromeIfNeeded, Set-BridgeMcpRegistration, Set-BridgeWebFirstRule, Copy-BridgeApplication, Write-BridgeConfig
-

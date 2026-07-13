@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from adapters.gptpro_web import GPTProWebAdapter
+from adapters.chatgpt_web import ChatGPTWebAdapter
 from core.project_sessions import ProjectSessionRegistry, project_key, sanitize_conversation_url
 
 
@@ -37,7 +37,7 @@ class AdapterConversationTests(unittest.IsolatedAsyncioTestCase):
     async def test_second_project_request_uses_saved_conversation(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            adapter = GPTProWebAdapter(
+            adapter = ChatGPTWebAdapter(
                 str(root),
                 {"web_adapter": {"base_url": "https://chatgpt.com", "user_data_dir": str(root / "profile")},
                  "conversation_reuse": {"enabled": True, "state_file": str(root / "sessions.json")},
@@ -58,7 +58,7 @@ class AdapterConversationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_marker_mismatch_is_not_reported_as_success(self):
         with tempfile.TemporaryDirectory() as temp:
-            adapter = GPTProWebAdapter(str(temp), {"web_adapter": {"response_wait": {"first_response_timeout_seconds": 1, "no_progress_timeout_seconds": 1, "max_response_wall_time_seconds": 1, "poll_interval_seconds": 0.01}}, "runtime": {}}, logger=None)
+            adapter = ChatGPTWebAdapter(str(temp), {"web_adapter": {"response_wait": {"first_response_timeout_seconds": 1, "no_progress_timeout_seconds": 1, "max_response_wall_time_seconds": 1, "poll_interval_seconds": 0.01}}, "runtime": {}}, logger=None)
 
             class Page:
                 async def wait_for_timeout(self, _):
@@ -79,7 +79,7 @@ class AdapterConversationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_new_empty_assistant_placeholder_is_not_returned_as_old_response(self):
         with tempfile.TemporaryDirectory() as temp:
-            adapter = GPTProWebAdapter(str(temp), {"web_adapter": {"response_wait": {"first_response_timeout_seconds": 1, "no_progress_timeout_seconds": 1, "max_response_wall_time_seconds": 1, "poll_interval_seconds": 0.01}}, "runtime": {}}, logger=None)
+            adapter = ChatGPTWebAdapter(str(temp), {"web_adapter": {"response_wait": {"first_response_timeout_seconds": 1, "no_progress_timeout_seconds": 1, "max_response_wall_time_seconds": 1, "poll_interval_seconds": 0.01}}, "runtime": {}}, logger=None)
 
             class Page:
                 async def wait_for_timeout(self, _):

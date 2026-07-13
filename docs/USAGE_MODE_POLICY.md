@@ -89,7 +89,7 @@ bridge_health_check
 Finally run the real Web loop:
 
 ```text
-ask_pro_architect:
+ask_web_architect:
 profile: fast
 include_workspace_context: false
 question:

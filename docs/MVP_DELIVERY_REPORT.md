@@ -7,7 +7,7 @@ Verified real-call path:
 ```text
 Codex
 -> MCP
--> ask_pro_architect
+-> ask_web_architect
 -> ChatGPT Web
 -> Codex return
 ```
@@ -30,7 +30,7 @@ expected_marker_seen: true
 
 ## Delivered Scope
 
-- `ask_pro_architect` minimal Web call
+- `ask_web_architect` minimal Web call
 - MCP tool invocation from Codex
 - ChatGPT Web launch through Playwright persistent browser context
 - Fresh page navigation to `https://chatgpt.com`
@@ -40,8 +40,8 @@ expected_marker_seen: true
 
 ## Out of Scope
 
-- `review_pro_code`
-- `debug_pro_error`
+- `review_web_code`
+- `debug_web_error`
 - deep profile
 - long-context workflows
 - automatic triggering
@@ -60,8 +60,6 @@ expected_marker_seen: true
 
 - Reduce fast-profile response wait latency after marker detection is stable.
 - Add tab lifecycle cleanup or reuse policy for repeated Web calls.
-- Validate `review_pro_code` only after the `ask_pro_architect` MVP remains stable.
+- Validate `review_web_code` only after the `ask_web_architect` MVP remains stable.
 - Validate context-enabled personal mode separately from the no-context smoke path.
 - Keep CDP daemon work out of the MVP branch until the Web path is reliable.
-
-

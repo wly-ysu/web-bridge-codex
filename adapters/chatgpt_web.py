@@ -1,8 +1,4 @@
-"""Playwright adapter for ChatGPT web UI.
-
-Historically named GPTProWebAdapter for backward compatibility. The actual behavior
-is a model-neutral ChatGPT Web Tech Lead Adapter.
-"""
+"""Playwright adapter for ChatGPT web UI."""
 
 from __future__ import annotations
 
@@ -21,7 +17,7 @@ from pathlib import Path
 from core.project_sessions import ProjectSessionRegistry, project_key, sanitize_conversation_url
 
 
-class GPTProWebAdapter:
+class ChatGPTWebAdapter:
     def __init__(self, workspace: str, config: dict, logger):
         self.cfg = config.get("web_adapter", {})
         self.config = config
@@ -160,7 +156,7 @@ class GPTProWebAdapter:
             if path.exists():
                 return path, f"real-{kind}"
 
-        fallback_name = self.cfg.get("profile_dir", ".gptpro-browser")
+        fallback_name = self.cfg.get("profile_dir", ".chatgpt-web-browser")
         return (self.workspace / fallback_name).resolve(), "fallback-local"
 
     def _build_launch_kwargs(self, user_data_dir_override: str | None = None) -> tuple[dict, list[str], str]:
@@ -719,7 +715,7 @@ if ($null -eq $procs) { "[]" } else { $procs }
                 f"user_data_dir_writable={preflight.get('user_data_dir_writable')}\n"
                 f"profile_in_use={preflight.get('profile_in_use')}\n"
                 f"matching_pids={preflight.get('matching_pids')}\n"
-                "recommended_action=close AI Bridge Chrome or kill only processes with --user-data-dir=gptpro_profile"
+                "recommended_action=close AI Bridge Chrome or kill only processes with --user-data-dir=web_bridge_profile"
             )
         if preflight.get("stale_lock_suspected"):
             return (
@@ -1241,9 +1237,9 @@ if ($null -eq $procs) { "[]" } else { $procs }
                         "stale_lock_suspected=true",
                         "recommended_action:",
                         "1. Close AI Bridge Chrome if open.",
-                        '2. Run: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --user-data-dir="%USERPROFILE%\\gptpro_profile_2"',
+                        '2. Run: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --user-data-dir="%USERPROFILE%\\web_bridge_profile_2"',
                         f"3. Delete {user_data_dir}/Default/lock",
-                        "4. Or create a new profile %USERPROFILE%\\gptpro_profile_2 and login ChatGPT again.",
+                        "4. Or create a new profile %USERPROFILE%\\web_bridge_profile_2 and login ChatGPT again.",
                         '5. Then set web_adapter.user_data_dir to that new profile path.',
                     ]
                 )
@@ -1263,9 +1259,9 @@ if ($null -eq $procs) { "[]" } else { $procs }
                         "stale_lock_suspected=true",
                         "recommended_action:",
                         "1. Close AI Bridge Chrome if open.",
-                        '2. Run: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --user-data-dir="%USERPROFILE%\\gptpro_profile_2"',
+                        '2. Run: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --user-data-dir="%USERPROFILE%\\web_bridge_profile_2"',
                         f"3. Delete {user_data_dir}/Default/lock",
-                        "4. Or create a new profile %USERPROFILE%\\gptpro_profile_2 and login ChatGPT again.",
+                        "4. Or create a new profile %USERPROFILE%\\web_bridge_profile_2 and login ChatGPT again.",
                         '5. Then set web_adapter.user_data_dir to that new profile path.',
                     ]
                 )
@@ -1435,9 +1431,9 @@ if ($null -eq $procs) { "[]" } else { $procs }
                         "stale_lock_suspected=true",
                         "recommended_action:",
                         "1. Close AI Bridge Chrome if open.",
-                        '2. Run: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --user-data-dir="%USERPROFILE%\\gptpro_profile_2"',
+                        '2. Run: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --user-data-dir="%USERPROFILE%\\web_bridge_profile_2"',
                         f"3. Delete {user_data_dir}/Default/lock",
-                        "4. Or create a new profile %USERPROFILE%\\gptpro_profile_2 and login ChatGPT again.",
+                        "4. Or create a new profile %USERPROFILE%\\web_bridge_profile_2 and login ChatGPT again.",
                         '5. Then set web_adapter.user_data_dir to that new profile path.',
                     ]
                 )
@@ -2240,6 +2236,19 @@ if ($null -eq $procs) { "[]" } else { $procs }
                 return None, error
 
             if response_started and now - last_progress_at >= no_progress_timeout:
+                if not response_text_changed:
+                    error = self._raise_web_error(
+                        "response.wait.stale_response",
+                        "stale_response_detected",
+                        {
+                            "assistant_count_before": assistant_count_before,
+                            "assistant_count_after": assistant_count_current,
+                            "last_assistant_text_unchanged": True,
+                            "no_progress_timeout_seconds": no_progress_timeout,
+                            "body_preview": body_preview,
+                        },
+                    )
+                    return None, error
                 if expected_marker:
                     error = self._raise_web_error(
                         "response.wait.expected_marker_missing",
@@ -2260,19 +2269,6 @@ if ($null -eq $procs) { "[]" } else { $procs }
                     )
                     self._flush_log_handlers()
                     return current_text.strip(), None
-                if not response_text_changed:
-                    error = self._raise_web_error(
-                        "response.wait.stale_response",
-                        "stale_response_detected",
-                        {
-                            "assistant_count_before": assistant_count_before,
-                            "assistant_count_after": assistant_count_current,
-                            "last_assistant_text_unchanged": True,
-                            "no_progress_timeout_seconds": no_progress_timeout,
-                            "body_preview": body_preview,
-                        },
-                    )
-                    return None, error
                 error = self._raise_web_error(
                     "response.wait.no_progress_timeout",
                     "assistant_response_stalled",
@@ -2485,5 +2481,3 @@ if ($null -eq $procs) { "[]" } else { $procs }
         self._log("info", "model switch not requested", {"call_id": call_id, "model_policy": mode})
         self._set_stage("web.model_selection.done", call_id=call_id, model=current_model)
         return current_model
-
-ChatGPTWebAdapter = GPTProWebAdapter

@@ -26,11 +26,11 @@ workflow:
 
 web_lead:
   default_tool: route_to_web_lead
-  fallback_tool: ask_pro_architect
+  fallback_tool: ask_web_architect
   default_profile: balanced
   vague_requirement_profile: balanced
   complex_requirement_profile: deep_lite
-  pro_profile: pro_deep
+  pro_profile: deep
 
 routing:
   default_non_execution_route: "web"
@@ -90,7 +90,7 @@ project:
 web_adapter:
   enabled: true
   base_url: "https://chatgpt.com"
-  profile_dir: ".gptpro-browser"
+  profile_dir: ".chatgpt-web-browser"
   user_data_dir: ""
   executable_path: ""
   channel: "chrome"
@@ -119,19 +119,19 @@ web_adapter:
     deep_lite:
       description: "Complex analysis with deeper reasoning and moderate latency"
       thinking_level: "deep"
-    pro_deep:
+    deep:
       description: "Strategic or high-risk work; request the strongest current Web reasoning"
       thinking_level: "deep"
     review:
       description: "Normal code review with balanced reasoning"
       thinking_level: "balanced"
-    pro_review:
+    critical_review:
       description: "Critical code review; request the strongest current Web reasoning"
       thinking_level: "deep"
     debug:
       description: "Normal debugging with balanced reasoning"
       thinking_level: "balanced"
-    pro_debug:
+    deep_debug:
       description: "Complex root-cause analysis; request the strongest current Web reasoning"
       thinking_level: "deep"
   input_selectors:

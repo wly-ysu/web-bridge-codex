@@ -7,7 +7,7 @@ The MVP has delivered the minimum real ChatGPT Web bridge:
 ```text
 Codex
 -> MCP
--> ask_pro_architect
+-> ask_web_architect
 -> ChatGPT Web
 -> Codex return
 ```
@@ -23,7 +23,7 @@ This confirmed path is not a mock, not an API fallback, and not a local fake ret
 The next goal is to turn the MVP into a daily-use tool:
 
 - no Chrome tab leakage
-- `review_pro_code` and `debug_pro_error` validated end to end
+- `review_web_code` and `debug_web_error` validated end to end
 - natural language routing verified
 - current Web capability used deliberately
 - workspace context restored and verified
@@ -43,7 +43,7 @@ Verified path:
 ```text
 Codex
 -> MCP
--> ask_pro_architect
+-> ask_web_architect
 -> ChatGPT Web
 -> Codex return
 ```
@@ -60,9 +60,9 @@ Status: delivered.
 
 Current MCP tools:
 
-- `ask_pro_architect`
-- `review_pro_code`
-- `debug_pro_error`
+- `ask_web_architect`
+- `review_web_code`
+- `debug_web_error`
 - `bridge_health_check`
 - `bridge_chrome_preflight`
 - `bridge_chrome_smoke_test`
@@ -70,7 +70,7 @@ Current MCP tools:
 
 ### 3. ChatGPT Web Adapter MVP Capabilities
 
-Status: delivered for `ask_pro_architect`.
+Status: delivered for `ask_web_architect`.
 
 Implemented capabilities:
 
@@ -142,7 +142,7 @@ Required behavior:
 - close only the fresh page created by the current call
 - do not close historical or user-created pages
 - `page.close` / `context.close` warnings must not override successful answers
-- multiple `ask_pro_architect` calls should not grow tab count
+- multiple `ask_web_architect` calls should not grow tab count
 
 Desired validation:
 
@@ -152,7 +152,7 @@ fresh_page_closed=true
 
 Priority: P0.
 
-### P0: Validate review_pro_code
+### P0: Validate review_web_code
 
 Current status:
 
@@ -174,7 +174,7 @@ Must confirm:
 
 Priority: P0.
 
-### P0: Validate debug_pro_error
+### P0: Validate debug_web_error
 
 Current status:
 
@@ -208,7 +208,7 @@ The user should be able to type:
 Expected routing:
 
 ```text
-ask_pro_architect
+ask_web_architect
 profile=balanced
 ```
 
@@ -243,21 +243,21 @@ bridge_test_context.txt
 
 Priority: P1.
 
-### P1: Pro Budget Routing Validation
+### P1: Premium Capacity Routing Validation
 
 Current strategy:
 
 - simple / normal problems use lower-complexity profiles
 - 30min-2h complex problems use `deep_lite`
-- 2h+ strategic problems use `pro_deep`
+- 2h+ strategic problems use `deep`
 
 Must validate:
 
 - `config.yaml` profiles are present
 - `AGENTS.md` rules are present
 - Codex selects expected profiles semantically
-- simple problems do not consume Pro
-- true Pro-level problems can escalate to `pro_deep`
+- simple problems do not consume premium capacity
+- highest-value problems can escalate to `deep`
 
 Priority: P1.
 
@@ -282,7 +282,7 @@ Inputs:
 Responsibilities:
 
 - classify architecture / review / debug
-- select `fast / balanced / deep_lite / pro_deep / review / pro_review / debug / pro_debug`
+- select `fast / balanced / deep_lite / deep / review / critical_review / debug / deep_debug`
 - call the corresponding MCP tool
 - return the tool result
 
@@ -361,9 +361,9 @@ Priority: P3.
 
 Examples:
 
-- compile fails 3 times -> call `debug_pro_error`
-- large diff -> call `review_pro_code`
-- architecture question -> call `ask_pro_architect`
+- compile fails 3 times -> call `debug_web_error`
+- large diff -> call `review_web_code`
+- architecture question -> call `ask_web_architect`
 
 Priority: P3.
 
@@ -397,10 +397,10 @@ Priority: P2/P3.
 Acceptance:
 
 ```text
-Repeated ask_pro_architect calls do not increase Chrome tab count.
+Repeated ask_web_architect calls do not increase Chrome tab count.
 ```
 
-### P0. Validate review_pro_code
+### P0. Validate review_web_code
 
 Acceptance:
 
@@ -410,7 +410,7 @@ review 当前 git diff
 
 returns through ChatGPT Web.
 
-### P0. Validate debug_pro_error
+### P0. Validate debug_web_error
 
 Acceptance:
 
@@ -431,7 +431,7 @@ Acceptance:
 automatically routes to:
 
 ```text
-ask_pro_architect profile=balanced
+ask_web_architect profile=balanced
 ```
 
 ### P1. Restore And Validate Workspace Context
@@ -445,7 +445,7 @@ ChatGPT Web can see a known context marker from the workspace.
 Delivered:
 
 ```text
-MVP minimal Web Bridge: ask_pro_architect can truly call ChatGPT Web and return to Codex.
+MVP minimal Web Bridge: ask_web_architect can truly call ChatGPT Web and return to Codex.
 ```
 
 Not yet daily-use complete:
@@ -453,5 +453,3 @@ Not yet daily-use complete:
 ```text
 tab cleanup, review/debug validation, natural language routing validation, model budget validation, and workspace context restoration.
 ```
-
-

@@ -15,7 +15,7 @@ decision request, Codex must first call:
 
 If `route_to_web_lead` is unavailable, Codex must call:
 
-`ask_pro_architect`
+`ask_web_architect`
 
 Codex must not answer these requests directly before the Web GPT / Web Lead
 returns a plan, clarification, review, or analysis.
@@ -57,7 +57,7 @@ For any user request written in natural language, Codex must first call:
 
 If `route_to_web_lead` is unavailable, Codex must call:
 
-`ask_pro_architect`
+`ask_web_architect`
 
 ## Local Execution Exception
 
@@ -74,7 +74,7 @@ Examples:
 Without this prefix, route to Web Lead first.
 
 Do not answer project questions directly before `route_to_web_lead` or fallback
-`ask_pro_architect` returns.
+`ask_web_architect` returns.
 
 ## Requirement Refinement
 
@@ -98,15 +98,15 @@ Codex may implement only after receiving a Web Lead plan.
 
 If the user interrupts with a correction, reminder, or clarification during implementation, Codex must route the correction to Web Lead before continuing.
 
-## Pro Budget Principle
+## Premium Capacity Principle
 
-Pro / Pro extension quota is limited and should be treated as scarce.
+Premium / strongest Web capacity is limited and should be treated as scarce.
 
 Default natural-language planning should use `profile=balanced`.
 
 Use `profile=deep_lite` for multi-module plans, multi-provider Web AI design, or 30-minute to 2-hour engineering problems.
 
-Use `profile=pro_deep` only when the user explicitly requests Pro, or when the problem is a 2h+ high-value architecture, patent, safety-critical, long-term roadmap, or repeated unresolved debugging problem.
+Use `profile=deep` only when the user explicitly requests the strongest Web mode, or when the problem is a 2h+ high-value architecture, patent, safety-critical, long-term roadmap, or repeated unresolved debugging problem.
 
 ## Examples
 

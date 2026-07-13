@@ -48,7 +48,7 @@ Rule of thumb:
 | < 5 min | `fast` | Current Web selection, concise response |
 | 5-30 min | `balanced` | Best available capability, balanced reasoning |
 | 30 min-2h | `deep_lite` | Best available capability, deeper reasoning |
-| 2h+ or strategic | `pro_deep` | Strongest available capability, then automatic downgrade |
+| 2h+ or strategic | `deep` | Strongest available capability, then automatic downgrade |
 
 User preference:
 
@@ -58,7 +58,7 @@ If user says:
 这个用最高可用能力
 ```
 
-then use `pro_deep`.
+then use `deep`.
 
 If user says:
 
@@ -66,7 +66,7 @@ If user says:
 普通速度优先就行
 ```
 
-then avoid Pro.
+then avoid premium capacity.
 
 ## Examples
 
@@ -74,47 +74,47 @@ User:
 这个模块架构怎么看？
 
 Route:
-`ask_pro_architect`
+`ask_web_architect`
 `profile=balanced`
 
 User:
 深入分析这个方案，多方案对比一下
 
 Route:
-`ask_pro_architect`
+`ask_web_architect`
 `profile=deep_lite`
 
 User:
-深度分析这个 freespace GAN 专利方案，留给 Pro
+深度分析这个 freespace GAN 专利方案，留给最强 Web 模型
 
 Route:
-`ask_pro_architect`
-`profile=pro_deep`
+`ask_web_architect`
+`profile=deep`
 
 User:
 review 当前 diff
 
 Route:
-`review_pro_code`
+`review_web_code`
 `profile=review`
 
 User:
-这是合入前关键架构级 review，用 Pro 看一下
+这是合入前关键架构级 review，用最强 Web 模型看一下
 
 Route:
-`review_pro_code`
-`profile=pro_review`
+`review_web_code`
+`profile=critical_review`
 
 User:
 这个报错怎么修？
 
 Route:
-`debug_pro_error`
+`debug_web_error`
 `profile=debug`
 
 User:
 这个异步问题卡了一下午，帮我根因分析
 
 Route:
-`debug_pro_error`
-`profile=pro_debug`
+`debug_web_error`
+`profile=deep_debug`

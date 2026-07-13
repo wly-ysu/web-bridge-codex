@@ -84,7 +84,7 @@ jobs:
           if (Test-Path -LiteralPath $legacyRoot) { throw "Legacy installation directory was not removed." }
           $currentRoot = Join-Path $env:LOCALAPPDATA "web-bridge-codex"
           if (-not (Test-Path -LiteralPath (Join-Path $currentRoot "chrome-profile\profile-marker.txt"))) { throw "Legacy Chrome profile was not preserved." }
-          foreach ($relativePath in @("app\server.py", "app\adapters\gptpro_web.py", "app\core\context_manager.py", "app\tools\architect.py")) {
+          foreach ($relativePath in @("app\server.py", "app\adapters\chatgpt_web.py", "app\core\context_manager.py", "app\tools\architect.py")) {
             if (-not (Test-Path -LiteralPath (Join-Path $currentRoot $relativePath))) { throw "Installed bridge runtime is incomplete: $relativePath" }
           }
           & (Join-Path $currentRoot "app\scripts\windows\verify-install.ps1")
@@ -165,4 +165,3 @@ jobs:
           export XDG_DATA_HOME="$RUNNER_TEMP/pro-bridge-macos-data"
           sh scripts/unix/install.sh --non-interactive --accept-ai-profile --no-open-browser
           sh "$HOME/Library/Application Support/web-bridge-codex/app/scripts/unix/doctor.sh"
-

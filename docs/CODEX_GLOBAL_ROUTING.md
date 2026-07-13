@@ -35,7 +35,7 @@ enabled = true
 unrelated MCP entries and migrates the historical `pro_bridge_codex` registration to the
 canonical name on upgrade.
 
-This layer provides the tools, including `route_to_web_lead`, `ask_pro_architect`, and health
+This layer provides the tools, including `route_to_web_lead`, `ask_web_architect`, and health
 checks. A server shown as enabled in the Codex UI proves only that this registration exists.
 
 ## Layer 2: global Web-First instruction
@@ -45,7 +45,7 @@ meaning is:
 
 ```text
 For natural-language project requests, call route_to_web_lead first.
-If it is unavailable, call ask_pro_architect.
+If it is unavailable, call ask_web_architect.
 Use the returned Web plan before implementing, reviewing, debugging, or deciding.
 Only an explicit "本地执行：" deterministic local request bypasses Web Lead.
 ```
@@ -90,7 +90,7 @@ bridge_health_check
 and:
 
 ```text
-ask_pro_architect
+ask_web_architect
 
 question: 请只输出 WEB_FIRST_RUNTIME_SUCCESS
 ```

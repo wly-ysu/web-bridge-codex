@@ -29,7 +29,7 @@ The installation is intentionally split into two user-level Codex files:
 ```
 
 The MCP registration makes the tools available. The managed `AGENTS.md` block makes normal
-natural-language project requests use `route_to_web_lead`, with `ask_pro_architect` as the
+natural-language project requests use `route_to_web_lead`, with `ask_web_architect` as the
 compatibility fallback. Both files must be associated with the same Windows user that runs Codex.
 
 The canonical MCP server name is `web-bridge-codex`. An earlier installation may contain the
@@ -85,7 +85,7 @@ server with the generated local configuration. In Codex, call `bridge_health_che
 then use:
 
 ```text
-ask_pro_architect
+ask_web_architect
 profile: fast
 include_workspace_context: false
 question: 请只输出 WINDOWS_INSTALL_SUCCESS
@@ -123,5 +123,3 @@ The standard uninstall keeps the dedicated browser profile and local configurati
 If Python is absent, the installer attempts a user-scoped `winget` installation. If
 `winget` is unavailable, it explains the next manual action without changing system
 security policy.
-
-

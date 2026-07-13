@@ -26,7 +26,7 @@ Planned providers:
 - Xiaomi Web AI
 - other free/open Web AI providers
 
-The system should prefer free/currently available Web AI capacity first. Pro or scarce premium capacity should be reserved for final arbitration, high-risk architecture decisions, or repeated disagreement.
+The system should prefer free/currently available Web AI capacity first. Scarce premium capacity should be reserved for final arbitration, high-risk architecture decisions, or repeated disagreement.
 
 ## Core Principle
 
@@ -92,7 +92,7 @@ Responsibilities:
 - estimate complexity
 - decide whether one provider is enough
 - decide whether multiple free providers should be used
-- decide whether Pro/premium final arbitration is justified
+- decide whether premium final arbitration is justified
 - package the final task as `TaskSpec`
 
 Example task types:
@@ -136,8 +136,8 @@ Rules:
 - simple task: use current Web Lead only
 - normal architecture: use ChatGPT Web or DeepSeek Web
 - multi-module design: use Doubao + DeepSeek + ChatGPT Web
-- disputed plan: ask one more free provider before using Pro
-- final high-risk arbitration: use Pro only if needed
+- disputed plan: ask one more free provider before using premium capacity
+- final high-risk arbitration: use premium capacity only if needed
 
 Provider calls should be concurrent where safe.
 
@@ -381,7 +381,7 @@ Use Web-First routing for natural-language requests.
 
 ### Free-first
 
-Use free/current Web AI providers before premium Pro capacity.
+Use free/current Web AI providers before premium capacity.
 
 ### Consensus threshold
 
@@ -403,7 +403,7 @@ consensus:
 | Chinese requirement refinement | Doubao + ChatGPT Web |
 | engineering architecture | DeepSeek + ChatGPT Web |
 | multi-provider roadmap | Doubao + DeepSeek + ChatGPT Web |
-| high-risk final decision | free providers first, Pro final if needed |
+| high-risk final decision | free providers first, premium final arbitration if needed |
 
 ## Configuration Sketch
 
@@ -500,7 +500,7 @@ Required:
 
 - no tab leak
 - stable `route_to_web_lead`
-- stable `ask_pro_architect`
+- stable `ask_web_architect`
 - clear logs and diagnostics
 
 ### Phase 1: Introduce internal abstractions only
@@ -551,8 +551,8 @@ Add provider-specific selectors and fallback extraction.
 Only after free providers return:
 
 - if they agree, synthesize directly
-- if they disagree, ask ChatGPT Web or Pro for final arbitration
-- if Pro quota is scarce, ask user before Pro final review
+- if they disagree, ask ChatGPT Web strongest mode for final arbitration
+- if premium quota is scarce, ask user before premium final review
 
 ## Acceptance Criteria
 
@@ -570,7 +570,7 @@ The goal is achieved when:
 
 - do not connect all providers at once
 - do not let providers edit code
-- do not call Pro for every request
+- do not use premium capacity for every request
 - do not depend on one provider being always available
 - do not build complex ML consensus before rule-based consensus works
 
@@ -588,5 +588,3 @@ The goal is achieved when:
 Implement internal data structures and orchestration with only ChatGPT Web active.
 
 This keeps the current MVP stable while preparing the architecture for Doubao, DeepSeek, Xiaomi, and other free Web AI providers.
-
-

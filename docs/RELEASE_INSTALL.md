@@ -45,7 +45,7 @@ The installer selects the matching GitHub Release asset: `windows-x64`, `linux-x
 ## Verification
 
 After restarting Codex, create a new task and call `bridge_health_check` as an MCP tool. Then call
-`ask_pro_architect` as an MCP tool with:
+`ask_web_architect` as an MCP tool with:
 
 ```text
 请只输出 RELEASE_INSTALL_SUCCESS

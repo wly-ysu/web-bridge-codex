@@ -17,4 +17,4 @@
 
 ## 0.1.0
 
-- Delivered the MVP ChatGPT Web bridge for `ask_pro_architect`.
+- Delivered the MVP ChatGPT Web bridge for `ask_web_architect`.

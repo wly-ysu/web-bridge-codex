@@ -12,7 +12,7 @@ try {
     New-Item -ItemType Directory -Path $staging -Force | Out-Null
     $packageRoot = Join-Path $staging "web-bridge-codex"
     New-Item -ItemType Directory -Path $packageRoot -Force | Out-Null
-    $excluded = @(".git", "__pycache__", "logs", "runtime", "dist", "packaging", ".gptpro-browser", "browser_data", "config.yaml", "bridge_mcp.log", "bridge_launch_matrix.log")
+    $excluded = @(".git", "__pycache__", "logs", "runtime", "dist", "packaging", ".chatgpt-web-browser", "browser_data", "config.yaml", "bridge_mcp.log", "bridge_launch_matrix.log")
     Get-ChildItem -LiteralPath $repositoryRoot -Force | Where-Object { $excluded -notcontains $_.Name } | ForEach-Object {
         Copy-Item -LiteralPath $_.FullName -Destination $packageRoot -Recurse -Force
     }
@@ -28,4 +28,3 @@ try {
 } finally {
     if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Recurse -Force }
 }
-

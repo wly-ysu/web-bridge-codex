@@ -5,7 +5,7 @@
    Windows and Unix installer syntax checks.
 3. Run the Windows installer on a clean Windows 10/11 user account.
 4. Verify `doctor.ps1`, `verify-install.ps1`, MCP registration, dedicated Chrome sign-in, and the minimal
-   `ask_pro_architect` marker call.
+   `ask_web_architect` marker call.
 5. Confirm the repository has no Chrome profile, log, token, cookie, venv, or local
    configuration files staged.
 6. Create and push an annotated Git tag such as `v0.2.0`.
@@ -17,5 +17,3 @@
 
 Before the first stable release, test the installer on a device that was not used for
 development. Windows is the only supported installation target in this release line.
-
-

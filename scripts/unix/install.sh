@@ -206,7 +206,7 @@ if [ "$PROFILE_ACTION" = create ]; then
   mkdir -p "$PROFILE" || fail "Could not create AI Chrome Profile directory: $PROFILE"
 fi
 mkdir -p "$STAGE/app"
-tar -C "$SOURCE_DIR" --exclude=.git --exclude=__pycache__ --exclude=logs --exclude=runtime --exclude=dist --exclude=packaging --exclude=.gptpro-browser --exclude=browser_data --exclude=config.yaml --exclude=bridge_mcp.log --exclude=bridge_launch_matrix.log -cf - . | tar -C "$STAGE/app" -xf -
+tar -C "$SOURCE_DIR" --exclude=.git --exclude=__pycache__ --exclude=logs --exclude=runtime --exclude=dist --exclude=packaging --exclude=.chatgpt-web-browser --exclude=browser_data --exclude=config.yaml --exclude=bridge_mcp.log --exclude=bridge_launch_matrix.log -cf - . | tar -C "$STAGE/app" -xf -
 rm -rf "$APP"
 mv "$STAGE/app" "$APP"
 
@@ -246,4 +246,3 @@ if [ "$SKIP_BROWSER_LAUNCH" != true ]; then
   "$BIN/launch-web-profile" >/dev/null 2>&1 &
   printf '%s\n' "A dedicated AI browser profile was opened. Sign in to ChatGPT once, then restart Codex."
 fi
-

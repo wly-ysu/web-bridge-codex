@@ -39,10 +39,8 @@ Profile path, then asks `Create or use this dedicated AI Chrome Profile? [y/N]`.
 to approve creation or reuse. Only after approval does it create or reuse the isolated
 Profile and open the dedicated AI Chrome login window. The only remaining manual action is
 logging into ChatGPT once in that popup window. Then restart Codex and call
-`ask_pro_architect` once.
+`ask_web_architect` once.
 
 If `winget` is unavailable, the installer stops safely and prints the official Python or
 Chrome download link. Install the missing program and run the exact same one-line command
 again; installation is idempotent and does not duplicate MCP entries or browser profiles.
-
-
