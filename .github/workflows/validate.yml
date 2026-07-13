@@ -20,6 +20,9 @@ jobs:
       - name: Run Web Adapter regression tests
         shell: pwsh
         run: python -m unittest tests.test_project_sessions
+      - name: Check shell and path safety rules
+        shell: pwsh
+        run: python tests/release/test_shell_safety.py
       - name: Validate PowerShell syntax
         shell: pwsh
         run: |
