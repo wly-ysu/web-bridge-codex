@@ -2156,6 +2156,7 @@ if ($null -eq $procs) { "[]" } else { $procs }
         last_text = last_assistant_text_before.strip()
         last_progress_at = start
         response_started = False
+        response_text_changed = False
         assistant_count_current = assistant_count_before
         body_preview = ""
 
@@ -2176,6 +2177,7 @@ if ($null -eq $procs) { "[]" } else { $procs }
             new_assistant = assistant_count_current > assistant_count_before or (
                 bool(current_text) and current_text != last_assistant_text_before
             )
+            has_new_response_text = bool(current_text.strip()) and current_text.strip() != last_assistant_text_before.strip()
             generating = bool(state.get("generating_indicator_found"))
             now = time.monotonic()
             elapsed_seconds = int(now - start)
@@ -2185,21 +2187,24 @@ if ($null -eq $procs) { "[]" } else { $procs }
                 last_progress_at = now
             if new_assistant:
                 response_started = True
+            if has_new_response_text:
+                response_text_changed = True
             logging.info(
-                "[RESPONSE_WAIT] call_id=%s elapsed_seconds=%s assistant_count_before=%s assistant_count_current=%s new_assistant_detected=%s response_started=%s generating=%s current_text_len=%s text_changed=%s seconds_since_progress=%s",
+                "[RESPONSE_WAIT] call_id=%s elapsed_seconds=%s assistant_count_before=%s assistant_count_current=%s new_assistant_detected=%s response_started=%s response_text_changed=%s generating=%s current_text_len=%s text_changed=%s seconds_since_progress=%s",
                 call_id,
                 elapsed_seconds,
                 assistant_count_before,
                 assistant_count_current,
                 new_assistant,
                 response_started,
+                has_new_response_text,
                 generating,
                 len(current_text),
                 text_changed,
                 int(now - last_progress_at),
             )
 
-            if expected_marker and expected_marker in current_text:
+            if expected_marker and has_new_response_text and expected_marker in current_text:
                 logging.info(
                     "[WATCHDOG] call_id=%s expected_marker=%s expected_marker_seen=true fast_profile_early_return=true",
                     call_id,
@@ -2212,7 +2217,7 @@ if ($null -eq $procs) { "[]" } else { $procs }
             # reused conversation the page can briefly expose an old completed
             # assistant turn while a new empty turn is being mounted. Never turn
             # that historical text into a false success.
-            if response_started and not expected_marker and current_text.strip() and not generating and now - last_progress_at >= stable_seconds:
+            if has_new_response_text and not expected_marker and not generating and now - last_progress_at >= stable_seconds:
                 logging.info(
                     "[WATCHDOG] call_id=%s expected_marker=%s expected_marker_seen=false response_completed=true",
                     call_id,
@@ -2247,7 +2252,7 @@ if ($null -eq $procs) { "[]" } else { $procs }
                         },
                     )
                     return None, error
-                if current_text.strip() and not generating:
+                if has_new_response_text and not generating:
                     logging.info(
                         "[WATCHDOG] call_id=%s response_completed_after_no_progress=true no_progress_timeout_seconds=%s",
                         call_id,
@@ -2255,6 +2260,19 @@ if ($null -eq $procs) { "[]" } else { $procs }
                     )
                     self._flush_log_handlers()
                     return current_text.strip(), None
+                if not response_text_changed:
+                    error = self._raise_web_error(
+                        "response.wait.stale_response",
+                        "stale_response_detected",
+                        {
+                            "assistant_count_before": assistant_count_before,
+                            "assistant_count_after": assistant_count_current,
+                            "last_assistant_text_unchanged": True,
+                            "no_progress_timeout_seconds": no_progress_timeout,
+                            "body_preview": body_preview,
+                        },
+                    )
+                    return None, error
                 error = self._raise_web_error(
                     "response.wait.no_progress_timeout",
                     "assistant_response_stalled",
@@ -2270,6 +2288,20 @@ if ($null -eq $procs) { "[]" } else { $procs }
                 return None, error
 
             await page.wait_for_timeout(poll_interval_ms)
+
+        if response_started and not response_text_changed:
+            error = self._raise_web_error(
+                "response.wait.stale_response",
+                "stale_response_detected",
+                {
+                    "assistant_count_before": assistant_count_before,
+                    "assistant_count_after": assistant_count_current,
+                    "last_assistant_text_unchanged": True,
+                    "max_response_wall_time_seconds": max_wall_time,
+                    "body_preview": body_preview,
+                },
+            )
+            return None, error
 
         logging.info(
             "[WATCHDOG] call_id=%s expected_marker=%s expected_marker_seen=false response_total_timeout=true max_response_wall_time_seconds=%s",

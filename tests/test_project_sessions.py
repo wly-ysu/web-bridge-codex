@@ -1,3 +1,4 @@
+import asyncio
 import json
 import tempfile
 import unittest
@@ -75,6 +76,27 @@ class AdapterConversationTests(unittest.IsolatedAsyncioTestCase):
             answer, error = await adapter._wait_for_assistant_response(Page(), "call", [], [], 1, "OLD_SUCCESS", "NEW_SUCCESS")
             self.assertIsNone(answer)
             self.assertIn("expected_marker_missing", error)
+
+    async def test_new_empty_assistant_placeholder_is_not_returned_as_old_response(self):
+        with tempfile.TemporaryDirectory() as temp:
+            adapter = GPTProWebAdapter(str(temp), {"web_adapter": {"response_wait": {"first_response_timeout_seconds": 1, "no_progress_timeout_seconds": 1, "max_response_wall_time_seconds": 1, "poll_interval_seconds": 0.01}}, "runtime": {}}, logger=None)
+
+            class Page:
+                async def wait_for_timeout(self, _):
+                    await asyncio.sleep(0.01)
+
+            async def state(*_):
+                return {"assistant_count": 2, "generating_indicator_found": False}
+
+            async def last(*_):
+                return "OLD_RESPONSE"
+
+            adapter._dump_response_debug_state = state
+            adapter._last_node_text = last
+            adapter._body_text_preview = last
+            answer, error = await adapter._wait_for_assistant_response(Page(), "call", [], [], 1, "OLD_RESPONSE", None)
+            self.assertIsNone(answer)
+            self.assertIn("stale_response_detected", error)
 
 
 if __name__ == "__main__":
