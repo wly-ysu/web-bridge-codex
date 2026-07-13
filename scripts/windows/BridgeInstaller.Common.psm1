@@ -287,6 +287,13 @@ function Write-BridgeConfig([string]$SourceDir, [string]$ChromePath = "", [switc
             Write-Host "CONFIG_REBUILT: replaced only the legacy bridge configuration with schema_version=2."
             return
         }
+        $legacyConfigPattern = '(ask_pro_architect|review_pro_code|debug_pro_error|pro_deep|pro_review|pro_debug|pro_profile|pro_budget_policy|prefer_gpt55|gptpro|GPT-5\.5)'
+        if ($content -match $legacyConfigPattern) {
+            Backup-BridgeFile $paths.ConfigFile | Out-Null
+            Set-Content -LiteralPath $paths.ConfigFile -Value (New-BridgeConfigContent) -Encoding utf8
+            Write-Host "CONFIG_REBUILT: replaced stale bridge configuration containing legacy Pro/model names."
+            return
+        }
         if (-not [string]::IsNullOrWhiteSpace($chromePathForYaml)) {
             if ($content -match '(?m)^  executable_path:') {
                 $updated = [regex]::Replace(

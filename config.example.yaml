@@ -30,20 +30,20 @@ web_lead:
   default_profile: balanced
   vague_requirement_profile: balanced
   complex_requirement_profile: deep_lite
-  pro_profile: deep
+  strongest_profile: deep
 
 routing:
   default_non_execution_route: "web"
   codex_role: "executor"
   web_role: "tech_lead"
   auto_route_natural_language: true
-  pro_budget_policy:
-    estimated_weekly_quota: 100
-    conserve_pro: true
-    pro_only_for_2h_plus_problems: true
-    prefer_gpt55_for_under_30min: true
-    require_explicit_or_high_value_for_pro: true
-    use_pro_for:
+  web_capacity_policy:
+    estimated_weekly_strongest_quota: 100
+    conserve_strongest: true
+    strongest_only_for_2h_plus_problems: true
+    prefer_current_standard_for_under_30min: true
+    require_explicit_or_high_value_for_strongest: true
+    use_strongest_for:
       - "2h_plus_deep_reasoning"
       - "patent_or_innovation_strategy"
       - "autonomous_driving_safety_critical_architecture"
@@ -51,7 +51,7 @@ routing:
       - "multi_round_unresolved_failure"
       - "high_risk_final_review"
       - "cross_module_migration_strategy"
-    avoid_pro_for:
+    avoid_strongest_for:
       - "simple_question"
       - "normal_architecture"
       - "routine_review"
@@ -153,6 +153,9 @@ web_adapter:
     - "div[data-testid='markdown']"
     - "article"
   response_wait:
+    baseline_min_wait_seconds: 3
+    baseline_max_wait_seconds: 12
+    baseline_stable_seconds: 2
     first_response_timeout_seconds: 60
     no_progress_timeout_seconds: 30
     max_response_wall_time_seconds: 600

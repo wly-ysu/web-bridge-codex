@@ -1007,9 +1007,12 @@ if ($null -eq $procs) { "[]" } else { $procs }
                 )
 
                 expected_marker = self._extract_expected_marker(prompt)
-                assistant_count_before = await self._count_nodes(page, response_selectors)
-                user_count_before = await self._count_nodes(page, user_selectors)
-                last_assistant_text_before = await self._last_node_text(page, response_selectors)
+                assistant_count_before, user_count_before, last_assistant_text_before = await self._capture_response_baseline(
+                    page,
+                    call_id,
+                    response_selectors,
+                    user_selectors,
+                )
                 logging.info(
                     "[RESPONSE_WAIT] call_id=%s assistant_count_before=%s last_assistant_len_before=%s expected_marker=%s",
                     call_id,
@@ -2129,6 +2132,66 @@ if ($null -eq $procs) { "[]" } else { $procs }
         )
         self._flush_log_handlers()
         return state
+
+    async def _capture_response_baseline(
+        self,
+        page,
+        call_id: str,
+        assistant_selectors: list[str],
+        user_selectors: list[str],
+    ) -> tuple[int, int, str]:
+        wait_cfg = self.cfg.get("response_wait", {})
+        if not isinstance(wait_cfg, dict):
+            wait_cfg = {}
+        min_wait_seconds = max(1, int(wait_cfg.get("baseline_min_wait_seconds", 3)))
+        max_wait_seconds = max(min_wait_seconds, int(wait_cfg.get("baseline_max_wait_seconds", 12)))
+        stable_seconds = max(1, int(wait_cfg.get("baseline_stable_seconds", 2)))
+        start = time.monotonic()
+        last_signature: tuple[int, int, str] | None = None
+        stable_since = start
+        assistant_count = 0
+        user_count = 0
+        assistant_text = ""
+
+        self._set_stage(
+            "web.response.baseline.start",
+            call_id=call_id,
+            min_wait_seconds=min_wait_seconds,
+            max_wait_seconds=max_wait_seconds,
+        )
+        while time.monotonic() - start < max_wait_seconds:
+            assistant_count = await self._count_nodes(page, assistant_selectors)
+            user_count = await self._count_nodes(page, user_selectors)
+            assistant_text = await self._last_node_text(page, assistant_selectors)
+            generating = await self._is_generating(page)
+            signature = (assistant_count, user_count, assistant_text)
+            now = time.monotonic()
+            if signature != last_signature:
+                last_signature = signature
+                stable_since = now
+            logging.info(
+                "[RESPONSE_BASELINE] call_id=%s elapsed_seconds=%s assistant_count=%s user_count=%s last_assistant_len=%s generating=%s stable_seconds=%s",
+                call_id,
+                int(now - start),
+                assistant_count,
+                user_count,
+                len(assistant_text),
+                generating,
+                int(now - stable_since),
+            )
+            self._flush_log_handlers()
+            if now - start >= min_wait_seconds and not generating and now - stable_since >= stable_seconds:
+                break
+            await page.wait_for_timeout(500)
+
+        self._set_stage(
+            "web.response.baseline.done",
+            call_id=call_id,
+            assistant_count=assistant_count,
+            user_count=user_count,
+            last_assistant_len=len(assistant_text),
+        )
+        return assistant_count, user_count, assistant_text
 
     async def _wait_for_assistant_response(
         self,
