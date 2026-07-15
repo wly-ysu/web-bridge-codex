@@ -2476,7 +2476,10 @@ if ($null -eq $procs) { "[]" } else { $procs }
                 )
                 return None, error
 
-            if response_started and now - last_progress_at >= no_progress_timeout:
+            # ChatGPT can show only a short thinking placeholder for minutes while
+            # the stop/generating control remains active. Treat that control as a
+            # lifecycle heartbeat and let the wall-time limit guard true hangs.
+            if response_started and not generating and now - last_progress_at >= no_progress_timeout:
                 if not response_text_changed:
                     error = self._raise_web_error(
                         "response.wait.stale_response",

@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from adapters.chatgpt_web import ChatGPTWebAdapter
 from core.project_sessions import ProjectSessionRegistry, project_key, sanitize_conversation_url
@@ -164,6 +165,54 @@ class AdapterConversationTests(unittest.IsolatedAsyncioTestCase):
             answer, error = await adapter._wait_for_assistant_response(Page(), "call", [], [], 1, "OLD_RESPONSE", None)
             self.assertIsNone(answer)
             self.assertIn("stale_response_detected", error)
+
+    async def test_active_generation_can_outlive_text_progress_timeout(self):
+        with tempfile.TemporaryDirectory() as temp:
+            adapter = ChatGPTWebAdapter(str(temp), {"web_adapter": {"response_wait": {"first_response_timeout_seconds": 1, "no_progress_timeout_seconds": 1, "max_response_wall_time_seconds": 5, "poll_interval_seconds": 0.01, "completion_stable_seconds": 1}}, "runtime": {}}, logger=None)
+            clock = [0.0]
+
+            class Page:
+                async def wait_for_timeout(self, _):
+                    clock[0] += 0.25
+
+            async def state(*_):
+                return {"assistant_count": 2, "generating_indicator_found": clock[0] < 1.25}
+
+            async def last(*_):
+                return "Thinking" if clock[0] < 1.25 else "FINAL_RESPONSE"
+
+            adapter._dump_response_debug_state = state
+            adapter._last_node_text = last
+            adapter._body_text_preview = last
+            with patch("adapters.chatgpt_web.time.monotonic", side_effect=lambda: clock[0]):
+                answer, error = await adapter._wait_for_assistant_response(Page(), "call", [], [], 1, "", None)
+
+            self.assertEqual(answer, "FINAL_RESPONSE")
+            self.assertIsNone(error)
+
+    async def test_active_generation_still_respects_total_wall_timeout(self):
+        with tempfile.TemporaryDirectory() as temp:
+            adapter = ChatGPTWebAdapter(str(temp), {"web_adapter": {"response_wait": {"first_response_timeout_seconds": 1, "no_progress_timeout_seconds": 1, "max_response_wall_time_seconds": 2, "poll_interval_seconds": 0.01}}, "runtime": {}}, logger=None)
+            clock = [0.0]
+
+            class Page:
+                async def wait_for_timeout(self, _):
+                    clock[0] += 0.25
+
+            async def state(*_):
+                return {"assistant_count": 2, "generating_indicator_found": True}
+
+            async def last(*_):
+                return "Thinking"
+
+            adapter._dump_response_debug_state = state
+            adapter._last_node_text = last
+            adapter._body_text_preview = last
+            with patch("adapters.chatgpt_web.time.monotonic", side_effect=lambda: clock[0]):
+                answer, error = await adapter._wait_for_assistant_response(Page(), "call", [], [], 1, "", None)
+
+            self.assertIsNone(answer)
+            self.assertIn("assistant_response_exceeded_max_wall_time", error)
 
 
 if __name__ == "__main__":
