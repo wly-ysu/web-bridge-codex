@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import tempfile
 import tomllib
 from pathlib import Path
 
@@ -40,11 +41,19 @@ async def main() -> None:
         raise SystemExit(f"Invalid installed MCP config args: {registered_args!r}")
     if Path(registration["command"]).resolve() != Path(executable).resolve():
         raise SystemExit("Installed MCP command does not point to the compiled executable")
-    async with stdio_client(StdioServerParameters(command=registration["command"], args=registered_args)) as streams:
-        async with ClientSession(*streams) as session:
-            await session.initialize()
-            tools = (await session.list_tools()).tools
-            names = {tool.name for tool in tools}
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as server_stderr:
+        async with stdio_client(
+            StdioServerParameters(command=registration["command"], args=registered_args),
+            errlog=server_stderr,
+        ) as streams:
+            async with ClientSession(*streams) as session:
+                await session.initialize()
+                tools = (await session.list_tools()).tools
+                names = {tool.name for tool in tools}
+        server_stderr.seek(0)
+        stderr_text = server_stderr.read()
+    if "Traceback" in stderr_text or "ValueError: I/O operation on closed file" in stderr_text:
+        raise SystemExit(f"Compiled MCP server emitted a shutdown error:\n{stderr_text}")
     missing = {
         "bridge_health_check",
         "bridge_browser_status",

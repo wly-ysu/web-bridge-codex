@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import io
 import logging
 import os
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -94,6 +98,13 @@ DEFAULT_CONFIG = {
         "max_related_files": 6,
         "max_logs": 3,
         "max_log_chars": 8000,
+    },
+    "browser_broker": {
+        "enabled": True,
+        "startup_timeout_seconds": 20,
+        "request_timeout_seconds": 660,
+        "idle_timeout_seconds": 1800,
+        "state_dir": "",
     },
     "project": {
         "allowed_extensions": [".cpp", ".hpp", ".cc", ".c", ".h", ".cu", ".py", ".yaml", ".yml", ".md", ".txt", "CMakeLists.txt"],
@@ -265,6 +276,10 @@ def create_server(config_path: str | Path = DEFAULT_CONFIG_PATH, verbose: bool =
     _log_stage("server.config.resolve.start", {"path": str(resolved_config_path)})
     config = load_config(resolved_config_path)
     _log_stage("server.config.loaded", {"path": str(resolved_config_path)})
+    workspace_root = Path.cwd().resolve()
+    config["_config_path"] = str(resolved_config_path)
+    config["_server_entry_path"] = str(Path(__file__).resolve())
+    config["_workspace_root"] = str(workspace_root)
 
     web_cfg = config.get("web_adapter", {})
     model_strategy = web_cfg.get("model_strategy", {})
@@ -273,7 +288,6 @@ def create_server(config_path: str | Path = DEFAULT_CONFIG_PATH, verbose: bool =
         logger.info("[Bridge] Model policy: %s", model_strategy.get("mode", "best_available"))
         logger.info("[Bridge] Fallback to current web model: %s", model_strategy.get("fallback_to_current_model", True))
 
-    workspace_root = Path.cwd().resolve()
     _log_adapter_init(cwd=Path.cwd(), base_dir=BASE_DIR, config_path=resolved_config_path)
     adapter = build_adapter(config, workspace_root, logger)
     adapter_type = "ChatGPTWebAdapter" if isinstance(adapter, ChatGPTWebAdapter) else type(adapter).__name__
@@ -669,6 +683,7 @@ No browser or heavy workspace read is used. Returns a compact health summary.
             f"tool_timeout_seconds={tool_timeout_seconds}",
             f"web_query_timeout_seconds={runtime_cfg.get('web_query_timeout_seconds', 150)}",
             f"conversation_reuse_enabled={config.get('conversation_reuse', {}).get('enabled', True)}",
+            f"browser_broker_enabled={config.get('browser_broker', {}).get('enabled', True)}",
             "tools_loaded=route_to_web_lead,ask_web_architect,review_web_code,debug_web_error,bridge_health_check,bridge_chrome_preflight,bridge_chrome_smoke_test,bridge_chrome_lifecycle_test,bridge_tab_health_check,bridge_close_extra_tabs,bridge_browser_status,bridge_browser_shutdown",
         ]
         result = "\n".join(lines)
@@ -845,6 +860,153 @@ environmental failures when Playwright launches close too quickly.
     return server
 
 
+class _BrokerSelfTestAdapter:
+    def __init__(self):
+        self.active = 0
+        self.max_concurrency = 0
+        self.query_count = 0
+
+    async def query(self, prompt: str, project_root: str | None = None, conversation_mode: str = "reuse_or_create") -> str:
+        del project_root, conversation_mode
+        self.active += 1
+        self.max_concurrency = max(self.max_concurrency, self.active)
+        try:
+            await asyncio.sleep(0.25)
+            self.query_count += 1
+            return f"BROKER_SELF_TEST:{prompt}"
+        finally:
+            self.active -= 1
+
+    def browser_status(self) -> str:
+        return "\n".join(
+            [
+                "BROKER_SELF_TEST_ADAPTER_STATUS",
+                f"self_test_query_count={self.query_count}",
+                f"self_test_max_concurrency={self.max_concurrency}",
+            ]
+        )
+
+    async def shutdown_browser(self) -> str:
+        return "BRIDGE_BROWSER_SHUTDOWN_OK"
+
+
+def _load_broker_config(config_path: str | Path) -> dict[str, Any]:
+    resolved = _resolve_config_path(config_path)
+    config = load_config(resolved)
+    config["_config_path"] = str(resolved)
+    config["_server_entry_path"] = str(Path(__file__).resolve())
+    config["_workspace_root"] = str(Path.cwd().resolve())
+    return config
+
+
+def _self_command() -> list[str]:
+    return [sys.executable] if getattr(sys, "frozen", False) else [sys.executable, str(Path(__file__).resolve())]
+
+
+def _run_broker_self_test(config_path: str | Path) -> int:
+    from core.browser_broker import BrowserBrokerClient
+
+    previous_state = os.environ.get("WEB_BRIDGE_BROKER_STATE_DIR")
+    previous_mode = os.environ.get("WEB_BRIDGE_BROKER_SELF_TEST")
+    with tempfile.TemporaryDirectory(prefix="web-bridge-broker-test-") as temporary:
+        os.environ["WEB_BRIDGE_BROKER_STATE_DIR"] = temporary
+        os.environ["WEB_BRIDGE_BROKER_SELF_TEST"] = "1"
+        client = None
+        try:
+            base = _self_command()
+            environment = os.environ.copy()
+            probes = []
+            for marker, project in (("PROCESS_A", "project-a"), ("PROCESS_B", "project-b")):
+                probes.append(
+                    subprocess.Popen(
+                        [
+                            *base,
+                            "--broker-probe",
+                            "--config",
+                            str(config_path),
+                            "--probe-prompt",
+                            marker,
+                            "--probe-project",
+                            project,
+                        ],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        encoding="utf-8",
+                        env=environment,
+                    )
+                )
+            outputs = [probe.communicate(timeout=35) for probe in probes]
+            config = _load_broker_config(config_path)
+            client = BrowserBrokerClient(config)
+            status = client.status()
+            failures = []
+            for index, ((stdout, stderr), marker) in enumerate(zip(outputs, ("PROCESS_A", "PROCESS_B")), start=1):
+                if probes[index - 1].returncode != 0 or f"BROKER_SELF_TEST:{marker}" not in stdout:
+                    failures.append(f"probe_{index}=returncode:{probes[index - 1].returncode},stdout:{stdout.strip()},stderr:{stderr.strip()}")
+            if "self_test_max_concurrency=1" not in status:
+                failures.append("global_queue_not_serialized")
+            if "processed_requests=2" not in status:
+                failures.append("processed_request_count_not_two")
+            if failures:
+                print("BROKER_SELF_TEST_FAILED")
+                print("\n".join(failures))
+                print(status)
+                return 1
+            print("BROKER_SELF_TEST_OK")
+            print("independent_client_processes=2")
+            print("singleton_broker=true")
+            print("global_queue_serialized=true")
+            print(status)
+            return 0
+        except Exception as exc:
+            print("BROKER_SELF_TEST_FAILED")
+            print(f"reason={type(exc).__name__}: {exc}")
+            return 1
+        finally:
+            if client is not None:
+                try:
+                    asyncio.run(client.shutdown())
+                except Exception:
+                    pass
+            if previous_state is None:
+                os.environ.pop("WEB_BRIDGE_BROKER_STATE_DIR", None)
+            else:
+                os.environ["WEB_BRIDGE_BROKER_STATE_DIR"] = previous_state
+            if previous_mode is None:
+                os.environ.pop("WEB_BRIDGE_BROKER_SELF_TEST", None)
+            else:
+                os.environ["WEB_BRIDGE_BROKER_SELF_TEST"] = previous_mode
+
+
+def _run_stdio_server(server: FastMCP) -> None:
+    """Keep SDK-owned UTF-8 wrappers from closing the process stdio handles."""
+    original_stdin = sys.stdin
+    original_stdout = sys.stdout
+    duplicate_stdin = io.TextIOWrapper(
+        os.fdopen(os.dup(original_stdin.fileno()), "rb", closefd=True),
+        encoding="utf-8",
+        errors="replace",
+    )
+    duplicate_stdout = io.TextIOWrapper(
+        os.fdopen(os.dup(original_stdout.fileno()), "wb", closefd=True),
+        encoding="utf-8",
+        write_through=True,
+    )
+    sys.stdin = duplicate_stdin
+    sys.stdout = duplicate_stdout
+    try:
+        server.run(transport="stdio")
+    finally:
+        sys.stdin = original_stdin
+        sys.stdout = original_stdout
+        for stream in (duplicate_stdin, duplicate_stdout):
+            try:
+                stream.close()
+            except (OSError, ValueError):
+                pass
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Codex-ChatGPTWeb Bridge MCP server")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG_PATH), help="Path to config yaml.")
@@ -856,7 +1018,47 @@ def main() -> None:
     parser.add_argument("--launcher", default="", help="Compiled bridge executable path for Codex setup.")
     parser.add_argument("--log-path", default="", help="External bridge log path for Codex setup.")
     parser.add_argument("--validate-config", action="store_true", help="Validate an installer-managed config and exit.")
+    parser.add_argument("--browser-broker", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--shutdown-broker", action="store_true", help="Gracefully stop the user browser broker.")
+    parser.add_argument("--broker-self-test", action="store_true", help="Run the cross-process broker self-test.")
+    parser.add_argument("--broker-probe", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--probe-prompt", default="", help=argparse.SUPPRESS)
+    parser.add_argument("--probe-project", default="", help=argparse.SUPPRESS)
     args = parser.parse_args()
+
+    if args.browser_broker:
+        from core.browser_broker import BrowserBrokerServer
+
+        os.environ["WEB_BRIDGE_BROKER_PROCESS"] = "1"
+        config = _load_broker_config(args.config)
+        if os.getenv("WEB_BRIDGE_BROKER_SELF_TEST") == "1":
+            adapter = _BrokerSelfTestAdapter()
+        else:
+            adapter = build_adapter(config, Path.cwd().resolve(), setup_logging(args.verbose))
+        asyncio.run(BrowserBrokerServer(config, adapter).run())
+        return
+
+    if args.shutdown_broker:
+        from core.browser_broker import BrowserBrokerClient
+
+        print(asyncio.run(BrowserBrokerClient(_load_broker_config(args.config)).shutdown()))
+        return
+
+    if args.broker_probe:
+        from core.browser_broker import BrowserBrokerClient
+
+        result = asyncio.run(
+            BrowserBrokerClient(_load_broker_config(args.config)).query(
+                args.probe_prompt,
+                args.probe_project or None,
+                "reuse_or_create",
+            )
+        )
+        print(result)
+        raise SystemExit(0 if result.startswith("BROKER_SELF_TEST:") else 1)
+
+    if args.broker_self_test:
+        raise SystemExit(_run_broker_self_test(args.config))
 
     if args.validate_config:
         validated = validate_install_config(args.config)
@@ -882,7 +1084,7 @@ def main() -> None:
         return
 
     server = create_server(config_path=args.config, verbose=args.verbose)
-    server.run(transport="stdio")
+    _run_stdio_server(server)
 
 
 if __name__ == "__main__":

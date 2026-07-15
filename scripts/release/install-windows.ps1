@@ -38,6 +38,20 @@ try {
         if (-not (Test-Path -LiteralPath (Join-Path $package "web-bridge-codex.exe")) -or -not (Test-Path -LiteralPath (Join-Path $package "config.example.yaml"))) {
             throw "Invalid Windows release archive."
         }
+        $existingLauncher = Join-Path $paths.App "web-bridge-codex.exe"
+        if ((Test-Path -LiteralPath $existingLauncher) -and (Test-Path -LiteralPath $paths.ConfigFile)) {
+            try {
+                & $existingLauncher --shutdown-broker --config $paths.ConfigFile 2>$null | ForEach-Object { Write-Host $_ }
+            } catch {
+                Write-Host "Existing runtime does not support graceful broker shutdown; continuing with the process safety check."
+            }
+            $brokerStopDeadline = (Get-Date).AddSeconds(10)
+            while ((Get-Date) -lt $brokerStopDeadline -and @(
+                Get-BridgeServerProcesses | Where-Object { "$($_.CommandLine)" -match '--browser-broker' }
+            ).Count -gt 0) {
+                Start-Sleep -Milliseconds 200
+            }
+        }
         if ((Get-BridgeServerProcesses).Count -gt 0) { throw "Close Codex before upgrading web-bridge-codex." }
         if (Test-Path -LiteralPath $paths.App) {
             Write-Host "web-bridge-codex upgrade will replace only this managed runtime:"

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.1
+
+- Move persistent Playwright/Chrome ownership into one user-scoped Browser Broker shared by every Codex MCP process.
+- Serialize cross-project Web requests through one authenticated loopback queue while preserving project conversation mappings in the broker process.
+- Add fail-fast, truthful delivery states so transport loss never claims a Web prompt was sent when it was not.
+- Recover stale broker state after crashes, exit after an idle timeout, and gracefully release the broker before release upgrades.
+- Add a packaged two-process broker self-test to Windows, Linux, Intel macOS, and Apple Silicon macOS release CI.
+
+## 0.6.0
+
+- Introduce the singleton Browser Broker protocol and global request queue.
+
+## 0.5.1
+
+- Report cross-process Chrome profile ownership conflicts before prompt delivery.
+
 ## 0.5.0
 
 - Keep one dedicated ChatGPT Web browser context alive inside the MCP process after its first successful launch.

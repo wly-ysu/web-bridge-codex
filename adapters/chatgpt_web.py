@@ -37,6 +37,17 @@ class ChatGPTWebAdapter:
         self._browser_user_data_dir: str | None = None
         self._browser_lock = asyncio.Lock()
         self._request_lock = asyncio.Lock()
+        self._broker_client = None
+        broker_cfg = config.get("browser_broker", {})
+        if (
+            bool(broker_cfg.get("enabled", True))
+            and bool(config.get("_config_path"))
+            and bool(config.get("_server_entry_path"))
+            and os.getenv("WEB_BRIDGE_BROKER_PROCESS") != "1"
+        ):
+            from core.browser_broker import BrowserBrokerClient
+
+            self._broker_client = BrowserBrokerClient(config, logger)
 
     def _set_stage(self, stage: str, **extra: object) -> None:
         self.last_stage = stage
@@ -499,6 +510,8 @@ if ($null -eq $procs) { "[]" } else { $procs }
             return context, launch_args, user_data_dir, False
 
     async def shutdown_browser(self) -> str:
+        if self._broker_client is not None:
+            return await self._broker_client.shutdown()
         call_id = str(uuid.uuid4())
         context = self._browser_context
         playwright = self._playwright
@@ -525,6 +538,8 @@ if ($null -eq $procs) { "[]" } else { $procs }
         )
 
     def browser_status(self) -> str:
+        if self._broker_client is not None:
+            return self._broker_client.status()
         alive = self._browser_context_alive()
         pages_count = 0
         chatgpt_pages_count = 0
@@ -768,6 +783,10 @@ if ($null -eq $procs) { "[]" } else { $procs }
             return {"warning": warning, "closed": 0}
 
     def run_chrome_preflight(self, user_data_dir_override: str | None = None) -> dict[str, object]:
+        if self._broker_client is not None:
+            return self._broker_client.call_sync(
+                "run_chrome_preflight", user_data_dir_override=user_data_dir_override
+            )
         executable_path = self.cfg.get("executable_path", "")
         executable_exists = bool(executable_path and Path(os.path.expandvars(os.path.expanduser(executable_path))).exists())
         profile_dir, _ = self._resolve_profile_dir(user_data_dir_override)
@@ -775,7 +794,7 @@ if ($null -eq $procs) { "[]" } else { $procs }
         profile_dir_exists = profile_dir.exists()
         user_data_dir_writable = self._check_writable(profile_dir)
         matching_pids = self._find_ai_profile_pids(profile_dir_str)
-        profile_in_use = len(matching_pids) > 0
+        profile_in_use = len(matching_pids) > 0 and not self._browser_context_alive()
         lock_files = self._collect_lock_files(profile_dir_str)
         _, launch_args, _ = self._build_launch_kwargs()
         auto_remove_stale_lock = bool(self.runtime_cfg.get("auto_remove_stale_lock", False))
@@ -1246,6 +1265,14 @@ if ($null -eq $procs) { "[]" } else { $procs }
         project_root: str | None = None,
         conversation_mode: str = "reuse_or_create",
     ) -> str:
+        if self._broker_client is not None:
+            self._set_stage("web.broker.forward.start", project_key=project_key(project_root or self.workspace))
+            result = await self._broker_client.query(prompt, project_root, conversation_mode)
+            self._set_stage(
+                "web.broker.forward.done" if not result.startswith("[WEB_ERROR]") else "web.broker.forward.error",
+                project_key=project_key(project_root or self.workspace),
+            )
+            return result
         logging.info("[WEB] query enter")
         self._set_stage("web.query.enter")
         self._log("info", "ChatGPT Web adapter enabled")
@@ -1270,6 +1297,16 @@ if ($null -eq $procs) { "[]" } else { $procs }
         preflight = self.run_chrome_preflight()
         self._set_stage("web.chrome_preflight.done", call_id=call_id, executable_exists=preflight["executable_exists"], user_data_dir_writable=preflight["user_data_dir_writable"])
         self._log("info", "preflight", {"call_id": call_id, "pref": preflight})
+        if preflight.get("profile_in_use") and not self._browser_context_alive():
+            return self._raise_web_error(
+                "browser.owner",
+                "profile_in_use_by_another_process",
+                {
+                    "matching_pids": preflight.get("matching_pids"),
+                    "web_prompt_sent": False,
+                    "retryable": True,
+                },
+            )
 
         base_url = self.cfg.get("base_url", "https://chatgpt.com")
         prompt_timeout_ms = self._runtime_seconds("web_query_timeout_seconds", 150) * 1000
@@ -1335,6 +1372,12 @@ if ($null -eq $procs) { "[]" } else { $procs }
         target_url: str | None = None,
         user_data_dir_override: str | None = None,
     ) -> str:
+        if self._broker_client is not None:
+            return await self._broker_client.call(
+                "chrome_smoke_test",
+                target_url=target_url,
+                user_data_dir_override=user_data_dir_override,
+            )
         self._set_stage("web.smoke_test.enter")
         base_url = target_url or self.cfg.get("base_url", "https://chatgpt.com")
         preflight = self.run_chrome_preflight(user_data_dir_override=user_data_dir_override)
@@ -1582,6 +1625,10 @@ if ($null -eq $procs) { "[]" } else { $procs }
         return "other"
 
     async def bridge_tab_health_check(self, user_data_dir_override: str | None = None) -> str:
+        if self._broker_client is not None:
+            return await self._broker_client.call(
+                "bridge_tab_health_check", user_data_dir_override=user_data_dir_override
+            )
         self._set_stage("web.tab_health.enter")
         preflight = self.run_chrome_preflight(user_data_dir_override=user_data_dir_override)
         if preflight["profile_in_use"]:
@@ -1650,6 +1697,13 @@ if ($null -eq $procs) { "[]" } else { $procs }
         dry_run: bool = True,
         user_data_dir_override: str | None = None,
     ) -> str:
+        if self._broker_client is not None:
+            return await self._broker_client.call(
+                "bridge_close_extra_tabs",
+                keep_latest=keep_latest,
+                dry_run=dry_run,
+                user_data_dir_override=user_data_dir_override,
+            )
         self._set_stage("web.close_extra_tabs.enter", keep_latest=keep_latest, dry_run=dry_run)
         keep_latest = max(0, int(keep_latest))
         preflight = self.run_chrome_preflight(user_data_dir_override=user_data_dir_override)
@@ -1783,6 +1837,16 @@ if ($null -eq $procs) { "[]" } else { $procs }
         minimal_args: bool = True,
         user_data_dir_override: str | None = None,
     ) -> str:
+        if self._broker_client is not None:
+            return await self._broker_client.call(
+                "chrome_lifecycle_test",
+                launch_mode=launch_mode,
+                skip_goto=skip_goto,
+                hold_seconds=hold_seconds,
+                target_url=target_url,
+                minimal_args=minimal_args,
+                user_data_dir_override=user_data_dir_override,
+            )
         launch_mode = str(launch_mode).strip() or "persistent_executable"
         if launch_mode not in {
             "persistent_executable",

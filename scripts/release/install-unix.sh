@@ -32,6 +32,11 @@ ARCHIVE=${ARTIFACT:-"$STAGE/web-bridge-codex-$TARGET.zip"}
 if [ -z "$ARTIFACT" ]; then command -v curl >/dev/null 2>&1 || fail "curl is required."; curl -fsSL "https://github.com/$REPOSITORY/releases/latest/download/web-bridge-codex-$TARGET.zip" -o "$ARCHIVE"; fi
 unzip -q "$ARCHIVE" -d "$STAGE/unpack"; PACKAGE="$STAGE/unpack/web-bridge-codex-$TARGET"; EXE="$PACKAGE/web-bridge-codex"
 [ -x "$EXE" ] && [ -f "$PACKAGE/config.example.yaml" ] || fail "Invalid release archive for $TARGET."
+if [ -x "$ROOT/app/web-bridge-codex" ] && [ -f "$ROOT/config/config.yaml" ]; then
+  "$ROOT/app/web-bridge-codex" --shutdown-broker --config "$ROOT/config/config.yaml" >/dev/null 2>&1 || true
+  broker_wait=0
+  while command -v pgrep >/dev/null 2>&1 && pgrep -f "$ROOT/app.*--browser-broker" >/dev/null 2>&1 && [ "$broker_wait" -lt 50 ]; do sleep 0.2; broker_wait=$((broker_wait + 1)); done
+fi
 if command -v pgrep >/dev/null 2>&1 && pgrep -f "$ROOT/app" >/dev/null 2>&1; then fail "Close Codex before upgrading web-bridge-codex."; fi
 mkdir -p "$ROOT/config" "$ROOT/logs" "$PROFILE"; rm -rf "$ROOT/app"; mv "$PACKAGE" "$ROOT/app"; CONFIG="$ROOT/config/config.yaml"
 if [ -f "$CONFIG" ] && { ! grep -Eq '^  local_execution_prefix:[[:space:]]*"[^"]*"[[:space:]]*$' "$CONFIG" || grep -Eq '^[[:space:]]+preferred_models:[[:space:]]*$' "$CONFIG"; }; then cp "$CONFIG" "$CONFIG.bridge-backup-$(date +%Y%m%d-%H%M%S)"; rm -f "$CONFIG"; printf '%s\n' "Migrated invalid or legacy bridge configuration to the current capability-based model policy."; fi

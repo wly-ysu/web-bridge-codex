@@ -108,7 +108,14 @@ web_adapter:
       - ["balanced", "均衡"]
       - ["fast", "极速"]
     fallback_to_current_model: true
-    fail_if_preferred_unavailable: false
+  fail_if_preferred_unavailable: false
+
+browser_broker:
+  enabled: true
+  startup_timeout_seconds: 20
+  request_timeout_seconds: 660
+  idle_timeout_seconds: 1800
+  state_dir: ""
   profiles:
     fast:
       description: "Simple questions and concise, low-latency responses"

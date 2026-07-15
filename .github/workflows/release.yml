@@ -44,6 +44,8 @@ jobs:
           & scripts/release/repair-windows.ps1 -ChromePath "$env:SystemRoot\System32\cmd.exe"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/release/test_mcp_tools_list.py (Join-Path $root "app\web-bridge-codex.exe") (Join-Path $root "config\config.yaml") (Join-Path $env:CODEX_HOME "config.toml")
+          & (Join-Path $root "app\web-bridge-codex.exe") --broker-self-test --config (Join-Path $root "config\config.yaml")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install and probe Unix artifact
         if: runner.os != 'Windows'
         shell: bash
@@ -54,6 +56,7 @@ jobs:
           printf '#!/bin/sh\nexit 0\n' > "$RUNNER_TEMP/browser/chrome"; chmod +x "$RUNNER_TEMP/browser/chrome"
           sh scripts/release/install-unix.sh --artifact "release-output/web-bridge-codex-${{ matrix.target }}.zip" --chrome-path "$RUNNER_TEMP/browser/chrome" --non-interactive --accept-ai-profile --no-open-browser
           python tests/release/test_mcp_tools_list.py "$XDG_DATA_HOME/web-bridge-codex/app/web-bridge-codex" "$XDG_DATA_HOME/web-bridge-codex/config/config.yaml" "$HOME/.codex/config.toml"
+          "$XDG_DATA_HOME/web-bridge-codex/app/web-bridge-codex" --broker-self-test --config "$XDG_DATA_HOME/web-bridge-codex/config/config.yaml"
       - uses: actions/upload-artifact@v4
         with:
           name: web-bridge-codex-${{ matrix.target }}

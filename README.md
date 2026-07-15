@@ -133,9 +133,14 @@ generation failures do not create new chats.
 
 ### Browser worker lifecycle
 
-The ChatGPT Web browser is kept alive inside the MCP process after the first successful Web call.
+The ChatGPT Web browser is owned by one user-scoped Browser Broker, not by an individual MCP
+process. Every Codex project connects to that singleton through an authenticated loopback socket.
+Requests from different projects may arrive concurrently, but one global queue serializes the
+Playwright operations so a single dedicated Chrome Profile is never launched by two processes.
+
 Each request opens a fresh ChatGPT tab, waits for the answer, then closes only that request tab.
-The browser context itself is preserved so later requests do not cold-start Chrome again.
+Project conversation mappings and browser ownership stay in the broker process, so later requests
+reuse the correct Web conversation without cold-starting Chrome or racing another Codex task.
 
 A single `about:blank` tab may remain open as a keepalive tab. This is intentional: closing the
 last tab can close the Chrome window and release the persistent profile. The bridge does not
