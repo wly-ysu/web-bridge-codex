@@ -152,11 +152,12 @@ DEFAULT_CONFIG = {
             "div[data-testid='markdown']",
         ],
         "response_wait": {
-            "first_response_timeout_seconds": 60,
-            "no_progress_timeout_seconds": 30,
-            "max_response_wall_time_seconds": 600,
-            "poll_interval_seconds": 1,
-            "completion_stable_seconds": 2,
+            "response_deadline_seconds": 600,
+            "settle_debounce_ms": 1200,
+            "observer_poll_interval_ms": 250,
+            "observer_healthcheck_seconds": 5,
+            "user_turn_confirm_timeout_seconds": 20,
+            "conversation_hydration_timeout_seconds": 30,
         },
     },
     "browser_tabs": {

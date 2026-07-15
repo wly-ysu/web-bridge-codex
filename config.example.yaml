@@ -160,14 +160,12 @@ browser_broker:
     - "div[data-testid='markdown']"
     - "article"
   response_wait:
-    baseline_min_wait_seconds: 3
-    baseline_max_wait_seconds: 12
-    baseline_stable_seconds: 2
-    first_response_timeout_seconds: 60
-    no_progress_timeout_seconds: 30
-    max_response_wall_time_seconds: 600
-    poll_interval_seconds: 1
-    completion_stable_seconds: 2
+    response_deadline_seconds: 600
+    settle_debounce_ms: 1200
+    observer_poll_interval_ms: 250
+    observer_healthcheck_seconds: 5
+    user_turn_confirm_timeout_seconds: 20
+    conversation_hydration_timeout_seconds: 30
 
 conversation_reuse:
   # One ChatGPT Web conversation per local project by default. State contains

@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from core.project_sessions import ProjectSessionRegistry, project_key, sanitize_conversation_url
+from core.response_state import PageSnapshot, ResponseRequestState, ResponseState, text_fingerprint
 
 
 class ChatGPTWebAdapter:
@@ -1035,6 +1036,7 @@ if ($null -eq $procs) { "[]" } else { $procs }
     async def _query_inner(self, prompt: str, base_url: str, prompt_timeout_ms: int, call_id: str, preflight: dict[str, object]) -> tuple[str, str | None]:
         browser = None
         page = None
+        observer_installed = False
         close_error: str | None = None
         page_close_error: str | None = None
         result_text: str | None = None
@@ -1084,6 +1086,12 @@ if ($null -eq $procs) { "[]" } else { $procs }
                     {"expected_conversation": expected_conversation},
                 )
                 return error_text, None
+            if expected_conversation and not await self._wait_for_conversation_hydration(page, call_id):
+                return self._raise_web_error(
+                    "conversation.hydration",
+                    "stored_conversation_turns_not_loaded",
+                    {"expected_conversation": expected_conversation},
+                ), None
 
             self._set_stage("web.model_selection.start", call_id=call_id)
             selected_model = await self._apply_model_policy(page, call_id)
@@ -1107,21 +1115,6 @@ if ($null -eq $procs) { "[]" } else { $procs }
                     'button[aria-label*="发送"]',
                 ],
             )
-            response_selectors = self._merge_selectors(
-                list(self.cfg.get("response_selectors", [])),
-                [
-                    '[data-message-author-role="assistant"]',
-                    '[data-testid*="conversation-turn"] [data-message-author-role="assistant"]',
-                    'div[data-message-author-role="assistant"]',
-                    'article:has([data-message-author-role="assistant"])',
-                    "div.markdown",
-                    ".markdown",
-                ],
-            )
-            user_selectors = [
-                '[data-message-author-role="user"]',
-                'div[data-message-author-role="user"]',
-            ]
             self._log(
                 "debug",
                 "selectors loaded",
@@ -1129,108 +1122,89 @@ if ($null -eq $procs) { "[]" } else { $procs }
                     "call_id": call_id,
                     "input": input_selectors,
                     "send": send_selectors,
-                    "response": response_selectors,
                 },
             )
 
             expected_marker = self._extract_expected_marker(prompt)
-            assistant_count_before, user_count_before, last_assistant_text_before = await self._capture_response_baseline(
-                page,
-                call_id,
-                response_selectors,
-                user_selectors,
-            )
-            logging.info(
-                "[RESPONSE_WAIT] call_id=%s assistant_count_before=%s last_assistant_len_before=%s expected_marker=%s",
-                call_id,
-                assistant_count_before,
-                len(last_assistant_text_before),
-                expected_marker or "<none>",
-            )
-
-            self._set_stage("web.prompt.send.start", call_id=call_id)
-            self._log("info", "typing prompt", {"call_id": call_id})
-            self._log("info", "Sending prompt to ChatGPT Web", {"call_id": call_id})
             input_box = await self._find_element(page, input_selectors, call_id, timeout_ms=prompt_timeout_ms)
             if input_box is None:
                 self._log("error", "input selector not found", {"call_id": call_id})
                 error_text = self._raise_web_error("input.selector", "cannot find chat input field")
             else:
-                await asyncio.wait_for(input_box.fill(prompt), timeout=prompt_timeout_ms / 1000)
-                await input_box.press("Enter")
-                self._log("info", "send clicked", {"call_id": call_id, "method": "press_enter"})
-                self._set_stage("web.prompt.send.done", call_id=call_id, method="press_enter")
-
-                if send_btn := await self._find_element(page, send_selectors, call_id, timeout_ms=5000):
-                    try:
-                        await asyncio.wait_for(send_btn.click(timeout=1200), timeout=5)
-                        self._log("info", "send clicked", {"call_id": call_id, "method": "send_button"})
-                    except Exception as exc:
-                        self._log("warning", "send clicked failed, ignored", {"call_id": call_id, "error": str(exc)})
-
-                await page.wait_for_timeout(1500)
-                user_count_after = await self._count_nodes(page, user_selectors)
-                body_preview_after_send = await self._body_text_preview(page)
-                input_cleared = await self._input_is_cleared(input_box)
-                prompt_marker_visible = bool(expected_marker and expected_marker in body_preview_after_send)
-                send_verified = user_count_after > user_count_before or prompt_marker_visible or input_cleared
-                logging.info(
-                    "[PROMPT_SEND_VERIFY] call_id=%s user_count_before=%s user_count_after=%s input_cleared=%s prompt_marker_visible=%s send_verified=%s",
-                    call_id,
-                    user_count_before,
-                    user_count_after,
-                    input_cleared,
-                    prompt_marker_visible,
-                    send_verified,
+                request_token = f"web-bridge-request-id:{call_id}"
+                submitted_prompt = (
+                    f"[{request_token}]\n"
+                    "Do not echo the request id above.\n\n"
+                    f"{prompt}"
                 )
-                self._flush_log_handlers()
-                if not send_verified:
-                    error_text = self._raise_web_error(
-                        "prompt.send.verify",
-                        "user_message_not_detected",
+                baseline = await self._capture_turn_snapshot(
+                    page,
+                    call_id,
+                    hash_from_ordinal=2**31 - 1,
+                    request_token=request_token,
+                )
+                await self._install_response_observer(page, call_id)
+                observer_installed = True
+                logging.info(
+                    "[RESPONSE_BASELINE] request_id=%s baseline_turn_count=%s expected_marker=%s",
+                    call_id,
+                    len(baseline.turns),
+                    expected_marker or "<none>",
+                )
+                self._set_stage("web.prompt.send.start", call_id=call_id)
+                self._log("info", "typing prompt", {"call_id": call_id})
+                self._log("info", "Sending prompt to ChatGPT Web", {"call_id": call_id})
+                await asyncio.wait_for(input_box.fill(submitted_prompt), timeout=prompt_timeout_ms / 1000)
+                send_method = "press_enter"
+                send_btn = await self._find_element(page, send_selectors, call_id, timeout_ms=1500)
+                if send_btn is not None:
+                    try:
+                        await asyncio.wait_for(send_btn.click(timeout=1500), timeout=5)
+                        send_method = "send_button"
+                    except Exception as exc:
+                        self._log("warning", "send button failed; using Enter", {"call_id": call_id, "error": str(exc)})
+                        await input_box.press("Enter")
+                else:
+                    await input_box.press("Enter")
+                self._log("info", "send clicked", {"call_id": call_id, "method": send_method})
+                self._set_stage("web.prompt.send.done", call_id=call_id, method=send_method)
+
+                self._set_stage("web.response.wait.start", call_id=call_id)
+                self._log("info", "waiting assistant response", {"call_id": call_id})
+                final, wait_error = await self._wait_for_correlated_response(
+                    page,
+                    call_id,
+                    baseline,
+                    submitted_prompt,
+                    expected_marker,
+                    request_token,
+                )
+                if wait_error is not None:
+                    self._set_stage("web.response.wait.done", call_id=call_id, status="failed")
+                    error_text = wait_error
+                else:
+                    final = (final or "").strip()
+                    self._set_stage("web.response.wait.done", call_id=call_id, status="ok")
+                    self._log(
+                        "info",
+                        "response length",
                         {
-                            "user_count_before": user_count_before,
-                            "user_count_after": user_count_after,
-                            "input_cleared": input_cleared,
-                            "prompt_marker_visible": prompt_marker_visible,
+                            "call_id": call_id,
+                            "response_len": len(final),
+                            "selector": "request-bound-assistant-turn",
                         },
                     )
-                else:
-                    self._set_stage("web.response.wait.start", call_id=call_id)
-                    self._log("info", "waiting assistant response", {"call_id": call_id})
-                    final, wait_error = await self._wait_for_assistant_response(
-                        page,
-                        call_id,
-                        response_selectors,
-                        user_selectors,
-                        assistant_count_before,
-                        last_assistant_text_before,
-                        expected_marker,
-                    )
-                    if wait_error is not None:
-                        self._set_stage("web.response.wait.done", call_id=call_id, status="failed")
-                        error_text = wait_error
-                    else:
-                        final = (final or "").strip()
-                        self._set_stage("web.response.wait.done", call_id=call_id, status="ok")
-                        self._log(
-                            "info",
-                            "response length",
-                            {
-                                "call_id": call_id,
-                                "response_len": len(final),
-                                "selector": "multi-selector-watchdog",
-                            },
-                        )
-                        logging.info("[WEB] response received")
-                        self._log("info", "response received", {"call_id": call_id, "len": len(final)})
-                        result_text = final
+                    logging.info("[WEB] response received")
+                    self._log("info", "response received", {"call_id": call_id, "len": len(final)})
+                    result_text = final
         except Exception as exc:
             if isinstance(exc, RuntimeError) and str(exc).startswith("[WEB_ERROR]"):
                 raise
             if error_text is None:
                 error_text = self._raise_web_error("web.query", exc)
         finally:
+            if page is not None and observer_installed:
+                await self._disconnect_response_observer(page, call_id)
             if browser is not None:
                 await self._safe_ensure_keepalive_page(browser, call_id=call_id, stage_prefix="web.query")
             if page is not None:
@@ -2174,393 +2148,513 @@ if ($null -eq $procs) { "[]" } else { $procs }
                 continue
         return None
 
-    async def _count_assistant_nodes(self, page, response_selectors: list[str], call_id: str) -> int:
-        for selector in response_selectors:
-            try:
-                locator = page.locator(selector)
-                count = await locator.count()
-                if count > 0:
-                    self._log("debug", "assistant node count sample", {"call_id": call_id, "selector": selector, "count": count})
-                    return int(count)
-            except Exception:
-                self._log("debug", "assistant node count selector error", {"call_id": call_id, "selector": selector})
-                continue
-        return 0
-
-    def _merge_selectors(self, configured: list[str], defaults: list[str]) -> list[str]:
+    @staticmethod
+    def _merge_selectors(configured: list[str], defaults: list[str]) -> list[str]:
         merged: list[str] = []
-        for selector in list(configured or []) + defaults:
-            selector = str(selector).strip()
-            if selector and selector not in merged:
-                merged.append(selector)
+        seen: set[str] = set()
+        for selector in [*configured, *defaults]:
+            value = str(selector or "").strip()
+            if value and value not in seen:
+                seen.add(value)
+                merged.append(value)
         return merged
 
-    def _extract_expected_marker(self, prompt: str) -> str | None:
-        markers = re.findall(r"\b[A-Z][A-Z0-9_]{6,}\b", prompt or "")
-        for marker in markers:
-            if marker.endswith("_SUCCESS"):
-                return marker
-        return markers[-1] if markers else None
+    @staticmethod
+    def _extract_expected_marker(prompt: str) -> str | None:
+        candidates = re.findall(
+            r"(?<![A-Za-z0-9_])([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)(?![A-Za-z0-9_])",
+            str(prompt or ""),
+        )
+        return candidates[-1] if candidates else None
 
-    async def _count_nodes(self, page, selectors: list[str]) -> int:
-        best_count = 0
-        for selector in selectors:
-            try:
-                count = await page.locator(selector).count()
-                if count > best_count:
-                    best_count = int(count)
-            except Exception:
-                continue
-        return best_count
-
-    async def _last_node_text(self, page, selectors: list[str]) -> str:
-        for selector in selectors:
-            try:
-                locator = page.locator(selector)
-                count = await locator.count()
-                if count > 0:
-                    text = await locator.nth(count - 1).inner_text(timeout=1200)
-                    if text and text.strip():
-                        return text.strip()
-            except Exception:
-                continue
-        return ""
-
-    async def _body_text_preview(self, page, limit: int = 1000) -> str:
+    async def _wait_for_conversation_hydration(self, page, call_id: str) -> bool:
+        wait_config = self.cfg.get("response_wait", {})
+        timeout_seconds = max(
+            1.0,
+            float(wait_config.get("conversation_hydration_timeout_seconds", 30)),
+        )
+        self._set_stage(
+            "web.conversation.hydration.start",
+            call_id=call_id,
+            timeout_seconds=timeout_seconds,
+        )
         try:
-            text = await page.locator("body").inner_text(timeout=1200)
-            return re.sub(r"\s+", " ", (text or "")).strip()[:limit]
-        except Exception:
-            return ""
-
-    async def _is_generating(self, page) -> bool:
-        selectors = [
-            'button[aria-label*="Stop"]',
-            'button[aria-label*="stop"]',
-            'button[aria-label*="停止"]',
-            'button:has-text("Stop")',
-            'button:has-text("停止")',
-            '[data-testid*="stop"]',
-            '[aria-label*="Stop generating"]',
-            '[aria-label*="停止生成"]',
-        ]
-        for selector in selectors:
-            try:
-                if await page.locator(selector).count() > 0:
-                    return True
-            except Exception:
-                continue
-        try:
-            body = (await page.locator("body").inner_text(timeout=1200)).lower()
-            return any(token in body for token in ["generating", "thinking", "正在生成", "思考中", "停止生成"])
-        except Exception:
+            await page.wait_for_selector(
+                '[data-message-author-role="user"], [data-message-author-role="assistant"]',
+                state="attached",
+                timeout=int(timeout_seconds * 1000),
+            )
+        except Exception as exc:
+            self._set_stage(
+                "web.conversation.hydration.failed",
+                call_id=call_id,
+                error=repr(exc),
+            )
             return False
+        self._set_stage("web.conversation.hydration.done", call_id=call_id)
+        return True
 
-    async def _input_is_cleared(self, input_box) -> bool:
-        try:
-            value = await input_box.input_value(timeout=1200)
-            return not bool(value.strip())
-        except Exception:
-            try:
-                text = await input_box.inner_text(timeout=1200)
-                return not bool(text.strip())
-            except Exception:
-                return False
-
-    async def _dump_response_debug_state(
-        self,
-        page,
-        call_id: str,
-        assistant_selectors: list[str],
-        user_selectors: list[str],
-    ) -> dict[str, object]:
-        assistant_count = await self._count_nodes(page, assistant_selectors)
-        user_count = await self._count_nodes(page, user_selectors)
-        last_assistant = await self._last_node_text(page, assistant_selectors)
-        generating = await self._is_generating(page)
-        try:
-            title = await page.title()
-        except Exception:
-            title = ""
-        try:
-            url = page.url
-        except Exception:
-            url = ""
-        state = {
-            "url": url,
-            "title": title,
-            "assistant_count": assistant_count,
-            "user_count": user_count,
-            "stop_button_found": generating,
-            "generating_indicator_found": generating,
-            "last_assistant_len": len(last_assistant),
-            "last_assistant_preview": last_assistant[:200].replace("\n", " "),
-        }
-        logging.info(
-            "[RESPONSE_DEBUG] call_id=%s url=%s title=%s assistant_count=%s user_count=%s stop_button_found=%s generating_indicator_found=%s last_assistant_len=%s last_assistant_preview=%s",
-            call_id,
-            state["url"],
-            state["title"],
-            state["assistant_count"],
-            state["user_count"],
-            state["stop_button_found"],
-            state["generating_indicator_found"],
-            state["last_assistant_len"],
-            state["last_assistant_preview"],
+    async def _install_response_observer(self, page, call_id: str) -> bool:
+        """Install one bounded MutationObserver for this request only."""
+        return bool(
+            await page.evaluate(
+                """
+                ({ requestId }) => {
+                    const registry = window.__webBridgeResponseObservers ||= {};
+                    registry[requestId]?.observer?.disconnect();
+                    delete registry[requestId];
+                    const root = document.querySelector("main") || document.body;
+                    if (!root) return false;
+                    const state = { observer: null, root, queue: [], sequence: 0 };
+                    const selector = [
+                        '[data-message-author-role="user"]',
+                        '[data-message-author-role="assistant"]',
+                        'article[data-testid^="conversation-turn-"]',
+                        '[data-testid^="conversation-turn-"]',
+                        '#prompt-textarea',
+                        '[contenteditable="true"]',
+                        '[role="alert"]',
+                        'button[data-testid]',
+                        'button[aria-label]'
+                    ].join(',');
+                    const asElement = (node) => node instanceof Element ? node : node?.parentElement;
+                    const relevant = (node) => {
+                        const element = asElement(node);
+                        return Boolean(element && (
+                            element.matches?.(selector) ||
+                            element.closest?.(selector) ||
+                            element.querySelector?.(selector)
+                        ));
+                    };
+                    const enqueue = (kind) => {
+                        state.sequence += 1;
+                        state.queue.push({ kind, sequence: state.sequence });
+                        if (state.queue.length > 64) {
+                            state.queue.splice(0, state.queue.length - 64);
+                        }
+                    };
+                    const observer = new MutationObserver((mutations) => {
+                        for (const mutation of mutations) {
+                            let changed = relevant(mutation.target);
+                            if (!changed && mutation.type === 'childList') {
+                                changed = Array.from(mutation.addedNodes).some(relevant);
+                            }
+                            if (changed) {
+                                enqueue('dom_mutation');
+                                return;
+                            }
+                        }
+                    });
+                    observer.observe(root, {
+                        subtree: true,
+                        childList: true,
+                        characterData: true,
+                        attributes: true,
+                        attributeFilter: ['aria-label', 'data-testid', 'disabled', 'class']
+                    });
+                    state.observer = observer;
+                    registry[requestId] = state;
+                    enqueue('observer_ready');
+                    return true;
+                }
+                """,
+                {"requestId": call_id},
+            )
         )
-        self._flush_log_handlers()
-        return state
 
-    async def _capture_response_baseline(
-        self,
-        page,
-        call_id: str,
-        assistant_selectors: list[str],
-        user_selectors: list[str],
-    ) -> tuple[int, int, str]:
-        wait_cfg = self.cfg.get("response_wait", {})
-        if not isinstance(wait_cfg, dict):
-            wait_cfg = {}
-        min_wait_seconds = max(1, int(wait_cfg.get("baseline_min_wait_seconds", 3)))
-        max_wait_seconds = max(min_wait_seconds, int(wait_cfg.get("baseline_max_wait_seconds", 12)))
-        stable_seconds = max(1, int(wait_cfg.get("baseline_stable_seconds", 2)))
-        start = time.monotonic()
-        last_signature: tuple[int, int, str] | None = None
-        stable_since = start
-        assistant_count = 0
-        user_count = 0
-        assistant_text = ""
-
-        self._set_stage(
-            "web.response.baseline.start",
-            call_id=call_id,
-            min_wait_seconds=min_wait_seconds,
-            max_wait_seconds=max_wait_seconds,
+    async def _drain_response_observer(self, page, call_id: str) -> dict[str, Any]:
+        return await page.evaluate(
+            """
+            ({ requestId }) => {
+                const state = window.__webBridgeResponseObservers?.[requestId];
+                if (!state) return { alive: false, sequence: 0, events: [] };
+                return {
+                    alive: Boolean(state.observer && state.root?.isConnected),
+                    sequence: state.sequence || 0,
+                    events: state.queue.splice(0, state.queue.length)
+                };
+            }
+            """,
+            {"requestId": call_id},
         )
-        while time.monotonic() - start < max_wait_seconds:
-            assistant_count = await self._count_nodes(page, assistant_selectors)
-            user_count = await self._count_nodes(page, user_selectors)
-            assistant_text = await self._last_node_text(page, assistant_selectors)
-            generating = await self._is_generating(page)
-            signature = (assistant_count, user_count, assistant_text)
-            now = time.monotonic()
-            if signature != last_signature:
-                last_signature = signature
-                stable_since = now
-            logging.info(
-                "[RESPONSE_BASELINE] call_id=%s elapsed_seconds=%s assistant_count=%s user_count=%s last_assistant_len=%s generating=%s stable_seconds=%s",
+
+    async def _disconnect_response_observer(self, page, call_id: str) -> None:
+        try:
+            await page.evaluate(
+                """
+                ({ requestId }) => {
+                    const registry = window.__webBridgeResponseObservers;
+                    const state = registry?.[requestId];
+                    if (!state) return;
+                    state.observer?.disconnect();
+                    state.queue.length = 0;
+                    delete registry[requestId];
+                }
+                """,
+                {"requestId": call_id},
+            )
+        except Exception as exc:
+            logging.warning(
+                "[STAGE] web.response.observer.disconnect.warning request_id=%s error=%r",
                 call_id,
-                int(now - start),
-                assistant_count,
-                user_count,
-                len(assistant_text),
-                generating,
-                int(now - stable_since),
+                exc,
             )
-            self._flush_log_handlers()
-            if now - start >= min_wait_seconds and not generating and now - stable_since >= stable_seconds:
-                break
-            await page.wait_for_timeout(500)
 
-        self._set_stage(
-            "web.response.baseline.done",
-            call_id=call_id,
-            assistant_count=assistant_count,
-            user_count=user_count,
-            last_assistant_len=len(assistant_text),
-        )
-        return assistant_count, user_count, assistant_text
-
-    async def _wait_for_assistant_response(
+    async def _capture_turn_snapshot(
         self,
         page,
         call_id: str,
-        assistant_selectors: list[str],
-        user_selectors: list[str],
-        assistant_count_before: int,
-        last_assistant_text_before: str,
-        expected_marker: str | None,
-    ) -> tuple[str | None, str | None]:
-        wait_cfg = self.cfg.get("response_wait", {})
-        if not isinstance(wait_cfg, dict):
-            wait_cfg = {}
-        first_response_timeout = max(1, int(wait_cfg.get("first_response_timeout_seconds", 60)))
-        no_progress_timeout = max(1, int(wait_cfg.get("no_progress_timeout_seconds", 30)))
-        max_wall_time = max(first_response_timeout, int(wait_cfg.get("max_response_wall_time_seconds", 600)))
-        poll_interval_ms = max(250, int(float(wait_cfg.get("poll_interval_seconds", 1)) * 1000))
-        stable_seconds = max(1, int(wait_cfg.get("completion_stable_seconds", 2)))
-        start = time.monotonic()
-        last_text = last_assistant_text_before.strip()
-        last_progress_at = start
-        response_started = False
-        response_text_changed = False
-        assistant_count_current = assistant_count_before
-        body_preview = ""
+        *,
+        hash_from_ordinal: int = 0,
+        observer_alive: bool = True,
+        observer_sequence: int = 0,
+        request_token: str = "",
+    ) -> PageSnapshot:
+        payload = await page.evaluate(
+            """
+            async ({ hashFromOrdinal, observerAlive, observerSequence, requestToken }) => {
+                const visible = (element) => {
+                    if (!element || !element.isConnected) return false;
+                    const style = getComputedStyle(element);
+                    const rect = element.getBoundingClientRect();
+                    return style.display !== 'none' && style.visibility !== 'hidden' &&
+                        rect.width > 0 && rect.height > 0;
+                };
+                const normalize = (value) => (value || '').replace(/\\s+/g, ' ').trim();
+                const sha256 = async (value) => {
+                    const digest = await crypto.subtle.digest(
+                        'SHA-256', new TextEncoder().encode(value)
+                    );
+                    return Array.from(new Uint8Array(digest))
+                        .map((byte) => byte.toString(16).padStart(2, '0')).join('');
+                };
+                const nodes = Array.from(document.querySelectorAll(
+                    '[data-message-author-role="user"], [data-message-author-role="assistant"]'
+                ));
+                const seen = new Set();
+                const turns = [];
+                for (const node of nodes) {
+                    const role = node.getAttribute('data-message-author-role');
+                    if (role !== 'user' && role !== 'assistant') continue;
+                    const root = node.closest('article[data-testid^="conversation-turn-"]') ||
+                        node.closest('[data-testid^="conversation-turn-"]') || node;
+                    const turnTestId = root.getAttribute('data-testid') || '';
+                    const ordinalMatch = /^conversation-turn-([0-9]+)$/.exec(turnTestId);
+                    const ordinal = ordinalMatch ? Number(ordinalMatch[1]) : turns.length;
+                    const stableId = node.getAttribute('data-message-id') ||
+                        root.getAttribute('data-message-id') ||
+                        root.getAttribute('data-testid') || root.id || `ordinal-${ordinal}`;
+                    let key = `${role}:${stableId}`;
+                    if (seen.has(key)) key = `${key}:${ordinal}`;
+                    seen.add(key);
+                    const text = normalize(node.innerText || node.textContent || root.innerText || '');
+                    turns.push({
+                        role,
+                        key,
+                        ordinal,
+                        textLength: text.length,
+                        textHash: ordinal >= hashFromOrdinal ? await sha256(text) : '',
+                        requestMatch: Boolean(
+                            role === 'user' && requestToken && text.includes(requestToken)
+                        )
+                    });
+                }
 
-        self._set_stage(
-            "web.response.wait.policy",
-            call_id=call_id,
-            first_response_timeout_seconds=first_response_timeout,
-            no_progress_timeout_seconds=no_progress_timeout,
-            max_response_wall_time_seconds=max_wall_time,
-            poll_interval_ms=poll_interval_ms,
-        )
+                const stopSelectors = [
+                    'button[data-testid="stop-button"]',
+                    'button[data-testid="stop-button-annotation"]',
+                    'button[data-testid*="stop"]',
+                    'button[aria-label="Stop generating"]',
+                    'button[aria-label="Stop"]',
+                    'button[aria-label*="停止"]'
+                ];
+                const generationActive = stopSelectors.some((selector) =>
+                    Array.from(document.querySelectorAll(selector)).some(visible)
+                );
+                const composer = document.querySelector('#prompt-textarea') ||
+                    document.querySelector('textarea') ||
+                    document.querySelector('[contenteditable="true"]');
+                const composerReady = Boolean(
+                    composer && visible(composer) && !composer.hasAttribute('disabled') &&
+                    composer.getAttribute('aria-disabled') !== 'true'
+                );
 
-        while time.monotonic() - start < max_wall_time:
-            state = await self._dump_response_debug_state(page, call_id, assistant_selectors, user_selectors)
-            assistant_count_current = int(state.get("assistant_count") or 0)
-            current_text = await self._last_node_text(page, assistant_selectors)
-            body_preview = await self._body_text_preview(page)
-            new_assistant = assistant_count_current > assistant_count_before or (
-                bool(current_text) and current_text != last_assistant_text_before
-            )
-            has_new_response_text = bool(current_text.strip()) and current_text.strip() != last_assistant_text_before.strip()
-            generating = bool(state.get("generating_indicator_found"))
-            now = time.monotonic()
-            elapsed_seconds = int(now - start)
-            text_changed = current_text != last_text
-            if text_changed:
-                last_text = current_text
-                last_progress_at = now
-            if new_assistant:
-                response_started = True
-            if has_new_response_text:
-                response_text_changed = True
-            logging.info(
-                "[RESPONSE_WAIT] call_id=%s elapsed_seconds=%s assistant_count_before=%s assistant_count_current=%s new_assistant_detected=%s response_started=%s response_text_changed=%s generating=%s current_text_len=%s text_changed=%s seconds_since_progress=%s",
-                call_id,
-                elapsed_seconds,
-                assistant_count_before,
-                assistant_count_current,
-                new_assistant,
-                response_started,
-                has_new_response_text,
-                generating,
-                len(current_text),
-                text_changed,
-                int(now - last_progress_at),
-            )
-
-            if expected_marker and has_new_response_text and expected_marker in current_text:
-                logging.info(
-                    "[WATCHDOG] call_id=%s expected_marker=%s expected_marker_seen=true fast_profile_early_return=true",
-                    call_id,
-                    expected_marker,
-                )
-                self._flush_log_handlers()
-                return current_text, None
-
-            # A caller-provided success marker is a verification contract. In a
-            # reused conversation the page can briefly expose an old completed
-            # assistant turn while a new empty turn is being mounted. Never turn
-            # that historical text into a false success.
-            if has_new_response_text and not expected_marker and not generating and now - last_progress_at >= stable_seconds:
-                logging.info(
-                    "[WATCHDOG] call_id=%s expected_marker=%s expected_marker_seen=false response_completed=true",
-                    call_id,
-                    expected_marker or "<none>",
-                )
-                self._flush_log_handlers()
-                return current_text.strip(), None
-
-            if not response_started and not generating and now - start >= first_response_timeout:
-                error = self._raise_web_error(
-                    "response.wait.first_response_timeout",
-                    "no_assistant_response_started",
-                    {
-                        "assistant_count_before": assistant_count_before,
-                        "assistant_count_after": assistant_count_current,
-                        "first_response_timeout_seconds": first_response_timeout,
-                        "body_preview": body_preview,
-                    },
-                )
-                return None, error
-
-            # ChatGPT can show only a short thinking placeholder for minutes while
-            # the stop/generating control remains active. Treat that control as a
-            # lifecycle heartbeat and let the wall-time limit guard true hangs.
-            if response_started and not generating and now - last_progress_at >= no_progress_timeout:
-                if not response_text_changed:
-                    error = self._raise_web_error(
-                        "response.wait.stale_response",
-                        "stale_response_detected",
-                        {
-                            "assistant_count_before": assistant_count_before,
-                            "assistant_count_after": assistant_count_current,
-                            "last_assistant_text_unchanged": True,
-                            "no_progress_timeout_seconds": no_progress_timeout,
-                            "body_preview": body_preview,
-                        },
-                    )
-                    return None, error
-                if expected_marker:
-                    error = self._raise_web_error(
-                        "response.wait.expected_marker_missing",
-                        "assistant_response_completed_without_expected_marker",
-                        {
-                            "expected_marker": expected_marker,
-                            "assistant_count_before": assistant_count_before,
-                            "assistant_count_after": assistant_count_current,
-                            "no_progress_timeout_seconds": no_progress_timeout,
-                        },
-                    )
-                    return None, error
-                if has_new_response_text and not generating:
-                    logging.info(
-                        "[WATCHDOG] call_id=%s response_completed_after_no_progress=true no_progress_timeout_seconds=%s",
-                        call_id,
-                        no_progress_timeout,
-                    )
-                    self._flush_log_handlers()
-                    return current_text.strip(), None
-                error = self._raise_web_error(
-                    "response.wait.no_progress_timeout",
-                    "assistant_response_stalled",
-                    {
-                        "assistant_count_before": assistant_count_before,
-                        "assistant_count_after": assistant_count_current,
-                        "no_progress_timeout_seconds": no_progress_timeout,
-                        "generating": generating,
-                        "current_text_length": len(current_text),
-                        "body_preview": body_preview,
-                    },
-                )
-                return None, error
-
-            await page.wait_for_timeout(poll_interval_ms)
-
-        if response_started and not response_text_changed:
-            error = self._raise_web_error(
-                "response.wait.stale_response",
-                "stale_response_detected",
-                {
-                    "assistant_count_before": assistant_count_before,
-                    "assistant_count_after": assistant_count_current,
-                    "last_assistant_text_unchanged": True,
-                    "max_response_wall_time_seconds": max_wall_time,
-                    "body_preview": body_preview,
-                },
-            )
-            return None, error
-
-        logging.info(
-            "[WATCHDOG] call_id=%s expected_marker=%s expected_marker_seen=false response_total_timeout=true max_response_wall_time_seconds=%s",
-            call_id,
-            expected_marker or "<none>",
-            max_wall_time,
-        )
-        error = self._raise_web_error(
-            "response.wait.total_timeout",
-            "assistant_response_exceeded_max_wall_time",
+                let failureCode = null;
+                if (/\\/(auth|login)(\\/|$)/i.test(location.pathname)) {
+                    failureCode = 'AUTH_LOGIN_REQUIRED';
+                } else if (navigator.onLine === false) {
+                    failureCode = 'REMOTE_NETWORK_ERROR';
+                }
+                const visibleText = (selector) => Array.from(document.querySelectorAll(selector))
+                    .filter(visible)
+                    .map((element) => normalize(element.innerText || element.textContent || ''))
+                    .filter(Boolean).join(' ');
+                if (!failureCode) {
+                    const alertText = visibleText('[role="alert"], [data-testid*="error"]');
+                    if (/too many requests|rate limit|usage limit|quota|达到.*上限|请求过多|额度/i.test(alertText)) {
+                        failureCode = 'USAGE_RATE_LIMITED';
+                    } else if (/network error|connection error|failed to fetch|网络错误|连接失败/i.test(alertText)) {
+                        failureCode = 'REMOTE_NETWORK_ERROR';
+                    }
+                }
+                if (!failureCode) {
+                    const retry = Array.from(document.querySelectorAll('button')).filter(visible)
+                        .find((button) => /^(retry|try again|重试|再试一次)$/i.test(
+                            normalize(button.innerText || button.getAttribute('aria-label') || '')
+                        ));
+                    if (retry) failureCode = 'REMOTE_RETRY_REQUIRED';
+                }
+                if (!failureCode && !composerReady) {
+                    const login = Array.from(document.querySelectorAll('button, a')).filter(visible)
+                        .find((element) => /^(log in|login|登录)$/i.test(
+                            normalize(element.innerText || element.textContent || '')
+                        ));
+                    if (login) failureCode = 'AUTH_LOGIN_REQUIRED';
+                }
+                return {
+                    turns,
+                    generationActive,
+                    composerReady,
+                    observerAlive,
+                    observerSequence,
+                    failureCode,
+                    url: location.href
+                };
+            }
+            """,
             {
-                "assistant_count_before": assistant_count_before,
-                "assistant_count_after": assistant_count_current,
-                "response_started": response_started,
-                "max_response_wall_time_seconds": max_wall_time,
-                "body_preview": body_preview,
+                "hashFromOrdinal": max(0, int(hash_from_ordinal)),
+                "observerAlive": bool(observer_alive),
+                "observerSequence": int(observer_sequence),
+                "requestToken": str(request_token or ""),
             },
         )
-        return None, error
+        return PageSnapshot.from_mapping(payload)
+
+    async def _read_bound_turn_text(
+        self,
+        page,
+        assistant_key: str,
+        assistant_ordinal: int,
+    ) -> dict[str, str]:
+        return await page.evaluate(
+            """
+            async ({ expectedKey, expectedOrdinal }) => {
+                const normalize = (value) => (value || '').replace(/\\s+/g, ' ').trim();
+                const sha256 = async (value) => {
+                    const digest = await crypto.subtle.digest(
+                        'SHA-256', new TextEncoder().encode(value)
+                    );
+                    return Array.from(new Uint8Array(digest))
+                        .map((byte) => byte.toString(16).padStart(2, '0')).join('');
+                };
+                const nodes = Array.from(document.querySelectorAll(
+                    '[data-message-author-role="user"], [data-message-author-role="assistant"]'
+                ));
+                const seen = new Set();
+                const turns = [];
+                for (const node of nodes) {
+                    const role = node.getAttribute('data-message-author-role');
+                    if (role !== 'user' && role !== 'assistant') continue;
+                    const root = node.closest('article[data-testid^="conversation-turn-"]') ||
+                        node.closest('[data-testid^="conversation-turn-"]') || node;
+                    const turnTestId = root.getAttribute('data-testid') || '';
+                    const ordinalMatch = /^conversation-turn-([0-9]+)$/.exec(turnTestId);
+                    const ordinal = ordinalMatch ? Number(ordinalMatch[1]) : turns.length;
+                    const stableId = node.getAttribute('data-message-id') ||
+                        root.getAttribute('data-message-id') ||
+                        root.getAttribute('data-testid') || root.id || `ordinal-${ordinal}`;
+                    let key = `${role}:${stableId}`;
+                    if (seen.has(key)) key = `${key}:${ordinal}`;
+                    seen.add(key);
+                    turns.push({ role, key, ordinal, root, node });
+                }
+                const turn = turns.find((candidate) =>
+                    candidate.role === 'assistant' && candidate.key === expectedKey &&
+                    candidate.ordinal === expectedOrdinal
+                );
+                if (!turn) return { text: '', textHash: '' };
+                const text = (
+                    turn.node.innerText || turn.node.textContent ||
+                    turn.root.innerText || turn.root.textContent || ''
+                ).trim();
+                return { text, textHash: await sha256(normalize(text)) };
+            }
+            """,
+            {"expectedKey": assistant_key, "expectedOrdinal": int(assistant_ordinal)},
+        )
+
+    async def _wait_for_correlated_response(
+        self,
+        page,
+        call_id: str,
+        baseline: PageSnapshot,
+        prompt: str,
+        expected_marker: str | None,
+        request_token: str,
+    ) -> tuple[str | None, str | None]:
+        wait_config = self.cfg.get("response_wait", {})
+        deadline_seconds = float(
+            wait_config.get(
+                "response_deadline_seconds",
+                wait_config.get("max_response_wall_time_seconds", 600),
+            )
+        )
+        settle_seconds = max(0.0, float(wait_config.get("settle_debounce_ms", 1200)) / 1000.0)
+        poll_seconds = max(0.1, float(wait_config.get("observer_poll_interval_ms", 250)) / 1000.0)
+        healthcheck_seconds = max(1.0, float(wait_config.get("observer_healthcheck_seconds", 5)))
+        user_turn_seconds = float(wait_config.get("user_turn_confirm_timeout_seconds", 20))
+        started_at = time.monotonic()
+        machine = ResponseRequestState.create(
+            call_id,
+            prompt,
+            baseline,
+            expected_marker,
+            started_at,
+            deadline_seconds,
+            settle_seconds,
+            user_turn_seconds,
+        )
+        page_terminal: dict[str, str | None] = {"code": None}
+
+        def on_page_close() -> None:
+            page_terminal["code"] = "BROWSER_PAGE_CLOSED"
+
+        def on_page_crash() -> None:
+            page_terminal["code"] = "BROWSER_PAGE_CRASHED"
+
+        page.on("close", on_page_close)
+        page.on("crash", on_page_crash)
+        last_healthcheck = 0.0
+        observer_reinstall_attempted = False
+        try:
+            while not machine.terminal:
+                now = time.monotonic()
+                if page_terminal["code"]:
+                    machine.fail(str(page_terminal["code"]))
+                    continue
+                if page.is_closed():
+                    machine.fail("BROWSER_PAGE_CLOSED")
+                    continue
+                try:
+                    observer_status = await self._drain_response_observer(page, call_id)
+                except Exception as exc:
+                    code = "BROWSER_CONTEXT_CLOSED" if "closed" in str(exc).lower() else "OBSERVER_PROTOCOL_ERROR"
+                    machine.fail(code, repr(exc))
+                    continue
+
+                observer_alive = bool(observer_status.get("alive"))
+                if not observer_alive:
+                    if observer_reinstall_attempted:
+                        machine.fail("OBSERVER_PROTOCOL_ERROR", "response_observer_reinstall_failed")
+                        continue
+                    observer_reinstall_attempted = True
+                    try:
+                        observer_alive = await self._install_response_observer(page, call_id)
+                        observer_status = await self._drain_response_observer(page, call_id)
+                    except Exception:
+                        observer_alive = False
+                    if not observer_alive:
+                        machine.fail("OBSERVER_PROTOCOL_ERROR", "response_observer_not_alive")
+                        continue
+
+                events = observer_status.get("events") or []
+                should_snapshot = bool(events) or last_healthcheck == 0.0 or (
+                    now - last_healthcheck >= healthcheck_seconds
+                )
+                if should_snapshot:
+                    previous_state = machine.state.value
+                    try:
+                        snapshot = await self._capture_turn_snapshot(
+                            page,
+                            call_id,
+                            hash_from_ordinal=baseline.turns.__len__(),
+                            observer_alive=observer_alive,
+                            observer_sequence=int(observer_status.get("sequence") or 0),
+                            request_token=request_token,
+                        )
+                    except Exception as exc:
+                        code = "BROWSER_CONTEXT_CLOSED" if "closed" in str(exc).lower() else "OBSERVER_PROTOCOL_ERROR"
+                        machine.fail(code, repr(exc))
+                        continue
+                    machine.observe(snapshot, now)
+                    last_healthcheck = now
+                    new_user_turns = [
+                        turn
+                        for turn in snapshot.turns
+                        if turn.role == "user"
+                        and turn.key not in machine.baseline_keys
+                        and turn.ordinal >= machine.baseline_turn_count
+                    ]
+                    logging.info(
+                        "[RESPONSE_STATE] request_id=%s previous=%s current=%s events=%s "
+                        "observer_sequence=%s user_key=%s assistant_key=%s text_length=%s "
+                        "text_hash=%s submitted_hash=%s new_user_candidates=%s "
+                        "generating=%s deadline_remaining=%.3f",
+                        call_id,
+                        previous_state,
+                        machine.state.value,
+                        ",".join(str(event.get("kind") or "unknown") for event in events) or "healthcheck",
+                        snapshot.observer_sequence,
+                        machine.user_turn_key or "",
+                        machine.assistant_turn_key or "",
+                        machine.assistant_text_length,
+                        (machine.assistant_text_hash or "")[:12],
+                        machine.submitted_hash[:12],
+                        ",".join(
+                            f"{turn.ordinal}:{turn.text_length}:{turn.text_hash[:12]}:{int(turn.request_match)}"
+                            for turn in new_user_turns
+                        ) or "<none>",
+                        snapshot.generation_active,
+                        max(0.0, machine.deadline_at - now),
+                    )
+                else:
+                    machine.check_time(now)
+
+                if not machine.terminal:
+                    await asyncio.sleep(poll_seconds)
+
+            if not machine.completed:
+                code = machine.error_code or "RESPONSE_STATE_FAILED"
+                return None, self._raise_web_error(
+                    f"response.state.{machine.state.value.lower()}",
+                    code.lower(),
+                    {
+                        "request_id": call_id,
+                        "failure_code": code,
+                        "reason": machine.terminal_reason or code,
+                    },
+                )
+
+            result = await self._read_bound_turn_text(
+                page,
+                machine.assistant_turn_key or "",
+                int(machine.assistant_turn_ordinal or 0),
+            )
+            response_text = str(result.get("text") or "").strip()
+            response_hash = str(result.get("textHash") or "")
+            if not response_text or response_hash != machine.assistant_text_hash:
+                return None, self._raise_web_error(
+                    "response.state.turn_association_failed",
+                    "response_association_error",
+                    {"request_id": call_id, "assistant_key": machine.assistant_turn_key},
+                )
+            if expected_marker and expected_marker not in response_text:
+                return None, self._raise_web_error(
+                    "response.validation",
+                    "expected_marker_missing",
+                    {"request_id": call_id, "expected_marker": expected_marker},
+                )
+            logging.info(
+                "[WEB_RETURN] request_id=%s assistant_key=%s response_length=%s",
+                call_id,
+                machine.assistant_turn_key,
+                len(response_text),
+            )
+            return response_text, None
+        finally:
+            page.remove_listener("close", on_page_close)
+            page.remove_listener("crash", on_page_crash)
 
     async def _read_current_model_text(self, page, call_id: str) -> str | None:
         selectors = [

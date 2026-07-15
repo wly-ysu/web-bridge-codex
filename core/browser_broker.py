@@ -20,7 +20,7 @@ from typing import Any
 
 
 BROKER_PROTOCOL = 1
-BROKER_VERSION = "0.6.2"
+BROKER_VERSION = "0.6.3"
 MAX_MESSAGE_BYTES = 16 * 1024 * 1024
 
 
