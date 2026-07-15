@@ -31,6 +31,12 @@ class ChatGPTWebAdapter:
         state_file = self.conversation_cfg.get("state_file") or str(profile_dir.parent / "state" / "project-sessions.v1.json")
         self.project_sessions = ProjectSessionRegistry(state_file)
         self._project_locks: dict[str, asyncio.Lock] = {}
+        self._browser_context = None
+        self._playwright = None
+        self._browser_launch_args: list[str] = []
+        self._browser_user_data_dir: str | None = None
+        self._browser_lock = asyncio.Lock()
+        self._request_lock = asyncio.Lock()
 
     def _set_stage(self, stage: str, **extra: object) -> None:
         self.last_stage = stage
@@ -442,6 +448,110 @@ if ($null -eq $procs) { "[]" } else { $procs }
             self._log("warning", "context close failed", {"call_id": call_id or "<none>", "stage_prefix": stage_prefix, "error": close_error})
             self._set_stage(f"{stage_prefix}.close", call_id=call_id or "<none>", status="error")
             return close_error
+
+    def _browser_context_alive(self) -> bool:
+        context = self._browser_context
+        if context is None:
+            return False
+        try:
+            _ = context.pages
+            return True
+        except Exception:
+            return False
+
+    async def _ensure_browser_context(self, preflight: dict[str, object], call_id: str):
+        async with self._browser_lock:
+            if self._browser_context_alive():
+                self._set_stage(
+                    "web.browser.reuse",
+                    call_id=call_id,
+                    status="ok",
+                    page_count=len(self._browser_context.pages),
+                )
+                return self._browser_context, self._browser_launch_args, self._browser_user_data_dir or str(preflight.get("user_data_dir", "")), True
+
+            from playwright.async_api import async_playwright
+
+            self._set_stage("web.browser.worker.start", call_id=call_id)
+            self._playwright = await async_playwright().start()
+            try:
+                context, launch_args, user_data_dir = await self._launch_context(self._playwright, call_id, preflight)
+            except Exception:
+                try:
+                    await self._playwright.stop()
+                except Exception:
+                    pass
+                self._playwright = None
+                self._browser_context = None
+                self._browser_launch_args = []
+                self._browser_user_data_dir = None
+                raise
+
+            self._browser_context = context
+            self._browser_launch_args = launch_args
+            self._browser_user_data_dir = user_data_dir
+            self._set_stage(
+                "web.browser.worker.ready",
+                call_id=call_id,
+                user_data_dir=user_data_dir,
+                page_count=len(context.pages),
+            )
+            return context, launch_args, user_data_dir, False
+
+    async def shutdown_browser(self) -> str:
+        call_id = str(uuid.uuid4())
+        context = self._browser_context
+        playwright = self._playwright
+        self._browser_context = None
+        self._playwright = None
+        self._browser_launch_args = []
+        self._browser_user_data_dir = None
+        close_warning = None
+        stop_warning = None
+        if context is not None:
+            close_warning = await self._safe_close_context(context, call_id=call_id, stage_prefix="web.browser_shutdown")
+        if playwright is not None:
+            try:
+                await playwright.stop()
+            except Exception as exc:
+                stop_warning = f"{type(exc).__name__}: {exc}"
+        return "\n".join(
+            [
+                "BRIDGE_BROWSER_SHUTDOWN_OK",
+                f"context_was_alive={context is not None}",
+                f"context_close_warning={close_warning or '<none>'}",
+                f"playwright_stop_warning={stop_warning or '<none>'}",
+            ]
+        )
+
+    def browser_status(self) -> str:
+        alive = self._browser_context_alive()
+        pages_count = 0
+        chatgpt_pages_count = 0
+        about_blank_pages_count = 0
+        if alive:
+            for page in self._browser_context.pages:
+                try:
+                    if page.is_closed():
+                        continue
+                    pages_count += 1
+                    kind = self._tab_kind(page.url)
+                    if kind == "chatgpt":
+                        chatgpt_pages_count += 1
+                    elif kind == "about_blank":
+                        about_blank_pages_count += 1
+                except Exception:
+                    continue
+        return "\n".join(
+            [
+                "BRIDGE_BROWSER_STATUS_OK",
+                f"worker_context_alive={alive}",
+                f"user_data_dir={self._browser_user_data_dir or '<not-started>'}",
+                f"pages_count={pages_count}",
+                f"chatgpt_pages_count={chatgpt_pages_count}",
+                f"about_blank_pages_count={about_blank_pages_count}",
+            ]
+        )
 
     async def _safe_close_page(self, page, call_id: str | None = None, stage_prefix: str = "web.page") -> tuple[bool, str | None]:
         if page is None:
@@ -911,210 +1021,206 @@ if ($null -eq $procs) { "[]" } else { $procs }
         result_text: str | None = None
         error_text: str | None = None
         try:
-            from playwright.async_api import async_playwright
+            browser, launch_args, user_data_dir, reused_context = await self._ensure_browser_context(preflight, call_id)
+            self._log(
+                "info",
+                "persistent context config",
+                {
+                    "call_id": call_id,
+                    "user_data_dir": user_data_dir,
+                    "headless": bool(self.cfg.get("headless", False)),
+                    "channel": self.cfg.get("channel"),
+                    "launch_args": launch_args,
+                    "reused_context": reused_context,
+                },
+            )
 
-            async with async_playwright() as p:
-                browser, launch_args, _ = await self._launch_context(p, call_id, preflight)
-                self._log(
-                    "info",
-                    "launch persistent context config",
-                    {
-                        "call_id": call_id,
-                        "user_data_dir": preflight["user_data_dir"],
-                        "headless": bool(self.cfg.get("headless", False)),
-                        "channel": self.cfg.get("channel"),
-                        "launch_args": launch_args,
-                    },
-                )
+            if self._tab_cleanup_config()["cleanup_before_query"]:
+                await self._safe_cleanup_browser_tabs(browser, call_id, phase="before_query")
 
-                if self._tab_cleanup_config()["cleanup_before_query"]:
-                    await self._safe_cleanup_browser_tabs(browser, call_id, phase="before_query")
+            (
+                page,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+            ) = await self._open_fresh_page(
+                browser,
+                base_url,
+                call_id,
+                page_stage_prefix="web.query",
+                goto_stage_prefix="web",
+                goto_timeout_ms=120000,
+            )
 
-                (
-                    page,
-                    _,
-                    _,
-                    _,
-                    _,
-                    _,
-                    _,
-                    _,
-                ) = await self._open_fresh_page(
-                    browser,
-                    base_url,
-                    call_id,
-                    page_stage_prefix="web.query",
-                    goto_stage_prefix="web",
-                    goto_timeout_ms=120000,
+            expected_conversation = sanitize_conversation_url(base_url)
+            current_conversation = sanitize_conversation_url(getattr(page, "url", ""))
+            if expected_conversation and current_conversation != expected_conversation:
+                error_text = self._raise_web_error(
+                    "conversation.open",
+                    "stored_conversation_not_available",
+                    {"expected_conversation": expected_conversation},
                 )
+                return error_text, None
 
-                expected_conversation = sanitize_conversation_url(base_url)
-                current_conversation = sanitize_conversation_url(getattr(page, "url", ""))
-                if expected_conversation and current_conversation != expected_conversation:
-                    error_text = self._raise_web_error(
-                        "conversation.open",
-                        "stored_conversation_not_available",
-                        {"expected_conversation": expected_conversation},
-                    )
-                    return error_text, None
+            self._set_stage("web.model_selection.start", call_id=call_id)
+            selected_model = await self._apply_model_policy(page, call_id)
+            self._log("info", "Selected / current model", {"call_id": call_id, "model": selected_model})
+            self._set_stage("web.model_selection.done", call_id=call_id, model=selected_model)
 
-                self._set_stage("web.model_selection.start", call_id=call_id)
-                selected_model = await self._apply_model_policy(page, call_id)
-                self._log("info", "Selected / current model", {"call_id": call_id, "model": selected_model})
-                self._set_stage("web.model_selection.done", call_id=call_id, model=selected_model)
+            input_selectors = self._merge_selectors(
+                list(self.cfg.get("input_selectors", [])),
+                [
+                    "#prompt-textarea",
+                    "textarea",
+                    'div[contenteditable="true"]',
+                    '[contenteditable="true"]',
+                ],
+            )
+            send_selectors = self._merge_selectors(
+                list(self.cfg.get("send_selectors", [])),
+                [
+                    'button[data-testid="send-button"]',
+                    'button[aria-label*="Send"]',
+                    'button[aria-label*="发送"]',
+                ],
+            )
+            response_selectors = self._merge_selectors(
+                list(self.cfg.get("response_selectors", [])),
+                [
+                    '[data-message-author-role="assistant"]',
+                    '[data-testid*="conversation-turn"] [data-message-author-role="assistant"]',
+                    'div[data-message-author-role="assistant"]',
+                    'article:has([data-message-author-role="assistant"])',
+                    "div.markdown",
+                    ".markdown",
+                ],
+            )
+            user_selectors = [
+                '[data-message-author-role="user"]',
+                'div[data-message-author-role="user"]',
+            ]
+            self._log(
+                "debug",
+                "selectors loaded",
+                {
+                    "call_id": call_id,
+                    "input": input_selectors,
+                    "send": send_selectors,
+                    "response": response_selectors,
+                },
+            )
 
-                input_selectors = self._merge_selectors(
-                    list(self.cfg.get("input_selectors", [])),
-                    [
-                        "#prompt-textarea",
-                        "textarea",
-                        'div[contenteditable="true"]',
-                        '[contenteditable="true"]',
-                    ],
-                )
-                send_selectors = self._merge_selectors(
-                    list(self.cfg.get("send_selectors", [])),
-                    [
-                        'button[data-testid="send-button"]',
-                        'button[aria-label*="Send"]',
-                        'button[aria-label*="发送"]',
-                    ],
-                )
-                response_selectors = self._merge_selectors(
-                    list(self.cfg.get("response_selectors", [])),
-                    [
-                        '[data-message-author-role="assistant"]',
-                        '[data-testid*="conversation-turn"] [data-message-author-role="assistant"]',
-                        'div[data-message-author-role="assistant"]',
-                        'article:has([data-message-author-role="assistant"])',
-                        "div.markdown",
-                        ".markdown",
-                    ],
-                )
-                user_selectors = [
-                    '[data-message-author-role="user"]',
-                    'div[data-message-author-role="user"]',
-                ]
-                self._log(
-                    "debug",
-                    "selectors loaded",
-                    {
-                        "call_id": call_id,
-                        "input": input_selectors,
-                        "send": send_selectors,
-                        "response": response_selectors,
-                    },
-                )
+            expected_marker = self._extract_expected_marker(prompt)
+            assistant_count_before, user_count_before, last_assistant_text_before = await self._capture_response_baseline(
+                page,
+                call_id,
+                response_selectors,
+                user_selectors,
+            )
+            logging.info(
+                "[RESPONSE_WAIT] call_id=%s assistant_count_before=%s last_assistant_len_before=%s expected_marker=%s",
+                call_id,
+                assistant_count_before,
+                len(last_assistant_text_before),
+                expected_marker or "<none>",
+            )
 
-                expected_marker = self._extract_expected_marker(prompt)
-                assistant_count_before, user_count_before, last_assistant_text_before = await self._capture_response_baseline(
-                    page,
-                    call_id,
-                    response_selectors,
-                    user_selectors,
-                )
+            self._set_stage("web.prompt.send.start", call_id=call_id)
+            self._log("info", "typing prompt", {"call_id": call_id})
+            self._log("info", "Sending prompt to ChatGPT Web", {"call_id": call_id})
+            input_box = await self._find_element(page, input_selectors, call_id, timeout_ms=prompt_timeout_ms)
+            if input_box is None:
+                self._log("error", "input selector not found", {"call_id": call_id})
+                error_text = self._raise_web_error("input.selector", "cannot find chat input field")
+            else:
+                await asyncio.wait_for(input_box.fill(prompt), timeout=prompt_timeout_ms / 1000)
+                await input_box.press("Enter")
+                self._log("info", "send clicked", {"call_id": call_id, "method": "press_enter"})
+                self._set_stage("web.prompt.send.done", call_id=call_id, method="press_enter")
+
+                if send_btn := await self._find_element(page, send_selectors, call_id, timeout_ms=5000):
+                    try:
+                        await asyncio.wait_for(send_btn.click(timeout=1200), timeout=5)
+                        self._log("info", "send clicked", {"call_id": call_id, "method": "send_button"})
+                    except Exception as exc:
+                        self._log("warning", "send clicked failed, ignored", {"call_id": call_id, "error": str(exc)})
+
+                await page.wait_for_timeout(1500)
+                user_count_after = await self._count_nodes(page, user_selectors)
+                body_preview_after_send = await self._body_text_preview(page)
+                input_cleared = await self._input_is_cleared(input_box)
+                prompt_marker_visible = bool(expected_marker and expected_marker in body_preview_after_send)
+                send_verified = user_count_after > user_count_before or prompt_marker_visible or input_cleared
                 logging.info(
-                    "[RESPONSE_WAIT] call_id=%s assistant_count_before=%s last_assistant_len_before=%s expected_marker=%s",
+                    "[PROMPT_SEND_VERIFY] call_id=%s user_count_before=%s user_count_after=%s input_cleared=%s prompt_marker_visible=%s send_verified=%s",
                     call_id,
-                    assistant_count_before,
-                    len(last_assistant_text_before),
-                    expected_marker or "<none>",
+                    user_count_before,
+                    user_count_after,
+                    input_cleared,
+                    prompt_marker_visible,
+                    send_verified,
                 )
-
-                self._set_stage("web.prompt.send.start", call_id=call_id)
-                self._log("info", "typing prompt", {"call_id": call_id})
-                self._log("info", "Sending prompt to ChatGPT Web", {"call_id": call_id})
-                input_box = await self._find_element(page, input_selectors, call_id, timeout_ms=prompt_timeout_ms)
-                if input_box is None:
-                    self._log("error", "input selector not found", {"call_id": call_id})
-                    error_text = self._raise_web_error("input.selector", "cannot find chat input field")
-                else:
-                    await asyncio.wait_for(input_box.fill(prompt), timeout=prompt_timeout_ms / 1000)
-                    await input_box.press("Enter")
-                    self._log("info", "send clicked", {"call_id": call_id, "method": "press_enter"})
-                    self._set_stage("web.prompt.send.done", call_id=call_id, method="press_enter")
-
-                    if send_btn := await self._find_element(page, send_selectors, call_id, timeout_ms=5000):
-                        try:
-                            await asyncio.wait_for(send_btn.click(timeout=1200), timeout=5)
-                            self._log("info", "send clicked", {"call_id": call_id, "method": "send_button"})
-                        except Exception as exc:
-                            self._log("warning", "send clicked failed, ignored", {"call_id": call_id, "error": str(exc)})
-
-                    await page.wait_for_timeout(1500)
-                    user_count_after = await self._count_nodes(page, user_selectors)
-                    body_preview_after_send = await self._body_text_preview(page)
-                    input_cleared = await self._input_is_cleared(input_box)
-                    prompt_marker_visible = bool(expected_marker and expected_marker in body_preview_after_send)
-                    send_verified = user_count_after > user_count_before or prompt_marker_visible or input_cleared
-                    logging.info(
-                        "[PROMPT_SEND_VERIFY] call_id=%s user_count_before=%s user_count_after=%s input_cleared=%s prompt_marker_visible=%s send_verified=%s",
-                        call_id,
-                        user_count_before,
-                        user_count_after,
-                        input_cleared,
-                        prompt_marker_visible,
-                        send_verified,
+                self._flush_log_handlers()
+                if not send_verified:
+                    error_text = self._raise_web_error(
+                        "prompt.send.verify",
+                        "user_message_not_detected",
+                        {
+                            "user_count_before": user_count_before,
+                            "user_count_after": user_count_after,
+                            "input_cleared": input_cleared,
+                            "prompt_marker_visible": prompt_marker_visible,
+                        },
                     )
-                    self._flush_log_handlers()
-                    if not send_verified:
-                        error_text = self._raise_web_error(
-                            "prompt.send.verify",
-                            "user_message_not_detected",
+                else:
+                    self._set_stage("web.response.wait.start", call_id=call_id)
+                    self._log("info", "waiting assistant response", {"call_id": call_id})
+                    final, wait_error = await self._wait_for_assistant_response(
+                        page,
+                        call_id,
+                        response_selectors,
+                        user_selectors,
+                        assistant_count_before,
+                        last_assistant_text_before,
+                        expected_marker,
+                    )
+                    if wait_error is not None:
+                        self._set_stage("web.response.wait.done", call_id=call_id, status="failed")
+                        error_text = wait_error
+                    else:
+                        final = (final or "").strip()
+                        self._set_stage("web.response.wait.done", call_id=call_id, status="ok")
+                        self._log(
+                            "info",
+                            "response length",
                             {
-                                "user_count_before": user_count_before,
-                                "user_count_after": user_count_after,
-                                "input_cleared": input_cleared,
-                                "prompt_marker_visible": prompt_marker_visible,
+                                "call_id": call_id,
+                                "response_len": len(final),
+                                "selector": "multi-selector-watchdog",
                             },
                         )
-                    else:
-                        self._set_stage("web.response.wait.start", call_id=call_id)
-                        self._log("info", "waiting assistant response", {"call_id": call_id})
-                        final, wait_error = await self._wait_for_assistant_response(
-                            page,
-                            call_id,
-                            response_selectors,
-                            user_selectors,
-                            assistant_count_before,
-                            last_assistant_text_before,
-                            expected_marker,
-                        )
-                        if wait_error is not None:
-                            self._set_stage("web.response.wait.done", call_id=call_id, status="failed")
-                            error_text = wait_error
-                        else:
-                            final = (final or "").strip()
-                            self._set_stage("web.response.wait.done", call_id=call_id, status="ok")
-                            self._log(
-                                "info",
-                                "response length",
-                                {
-                                    "call_id": call_id,
-                                    "response_len": len(final),
-                                    "selector": "multi-selector-watchdog",
-                                },
-                            )
-                            logging.info("[WEB] response received")
-                            self._log("info", "response received", {"call_id": call_id, "len": len(final)})
-                            result_text = final
+                        logging.info("[WEB] response received")
+                        self._log("info", "response received", {"call_id": call_id, "len": len(final)})
+                        result_text = final
         except Exception as exc:
             if isinstance(exc, RuntimeError) and str(exc).startswith("[WEB_ERROR]"):
                 raise
             if error_text is None:
                 error_text = self._raise_web_error("web.query", exc)
         finally:
-            if page is not None:
-                self._log("info", "prepare fresh page as keepalive", {"call_id": call_id})
-                _, page_close_error = await self._safe_prepare_keepalive_page(page, call_id=call_id, stage_prefix="web.query.page")
             if browser is not None:
                 await self._safe_ensure_keepalive_page(browser, call_id=call_id, stage_prefix="web.query")
+            if page is not None:
+                self._log("info", "close fresh request page", {"call_id": call_id})
+                _, page_close_error = await self._safe_close_page(page, call_id=call_id, stage_prefix="web.query.page")
+            if browser is not None:
                 if self._tab_cleanup_config()["cleanup_after_query"]:
                     await self._safe_cleanup_browser_tabs(browser, call_id, phase="after_query")
-                self._log("info", "close context", {"call_id": call_id})
-                self._set_stage("web.close.start", call_id=call_id, status="start")
-                close_error = await self._safe_close_context(browser, call_id=call_id, stage_prefix="web.query")
-                self._set_stage("web.close.done", call_id=call_id, status="done", close_warning=close_error or "<none>")
+                self._set_stage("web.browser.keepalive", call_id=call_id, status="context_preserved", page_count=len(browser.pages))
 
         if close_error and result_text is None and error_text is None:
             return self._raise_web_error("web.close", close_error, {"check_log": "bridge_mcp.log", "stage": "web.close"}), None
@@ -1189,16 +1295,24 @@ if ($null -eq $procs) { "[]" } else { $procs }
         try:
             if lock:
                 async with lock:
-                    result, observed_url = await self._query_inner(prompt, base_url, prompt_timeout_ms, call_id, preflight)
-                    if result.startswith("[WEB_ERROR]") and session and "stage=conversation.open" in result and bool(self.conversation_cfg.get("recover_once_on_definitive_invalid", True)):
-                        self.project_sessions.mark_invalid(key)
-                        self._set_stage("web.conversation.recover", call_id=call_id, project_key=key)
-                        result, observed_url = await self._query_inner(prompt, self.cfg.get("base_url", "https://chatgpt.com"), prompt_timeout_ms, call_id, preflight)
-                    if not result.startswith("[WEB_ERROR]") and observed_url:
-                        saved = self.project_sessions.put(project_root or self.workspace, observed_url, prior=session)
-                        self._set_stage("web.conversation.saved", call_id=call_id, project_key=saved.project_key, generation=saved.generation)
-                    return result
-            result, _ = await self._query_inner(prompt, base_url, prompt_timeout_ms, call_id, preflight)
+                    self._set_stage("web.profile_queue.wait", call_id=call_id, project_key=key)
+                    async with self._request_lock:
+                        self._set_stage("web.profile_queue.enter", call_id=call_id, project_key=key)
+                        result, observed_url = await self._query_inner(prompt, base_url, prompt_timeout_ms, call_id, preflight)
+                        if result.startswith("[WEB_ERROR]") and session and "stage=conversation.open" in result and bool(self.conversation_cfg.get("recover_once_on_definitive_invalid", True)):
+                            self.project_sessions.mark_invalid(key)
+                            self._set_stage("web.conversation.recover", call_id=call_id, project_key=key)
+                            result, observed_url = await self._query_inner(prompt, self.cfg.get("base_url", "https://chatgpt.com"), prompt_timeout_ms, call_id, preflight)
+                        if not result.startswith("[WEB_ERROR]") and observed_url:
+                            saved = self.project_sessions.put(project_root or self.workspace, observed_url, prior=session)
+                            self._set_stage("web.conversation.saved", call_id=call_id, project_key=saved.project_key, generation=saved.generation)
+                        self._set_stage("web.profile_queue.leave", call_id=call_id, project_key=key)
+                        return result
+            self._set_stage("web.profile_queue.wait", call_id=call_id, project_key="<none>")
+            async with self._request_lock:
+                self._set_stage("web.profile_queue.enter", call_id=call_id, project_key="<none>")
+                result, _ = await self._query_inner(prompt, base_url, prompt_timeout_ms, call_id, preflight)
+                self._set_stage("web.profile_queue.leave", call_id=call_id, project_key="<none>")
             return result
         except Exception as exc:
             if isinstance(exc, RuntimeError) and str(exc).startswith("[WEB_ERROR]"):

@@ -34,6 +34,73 @@ class ProjectSessionTests(unittest.TestCase):
 
 
 class AdapterConversationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_profile_queue_serializes_requests_from_different_projects(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            adapter = ChatGPTWebAdapter(
+                str(root),
+                {"web_adapter": {"base_url": "https://chatgpt.com", "user_data_dir": str(root / "profile")}, "runtime": {}},
+                logger=None,
+            )
+            adapter.run_chrome_preflight = lambda: {
+                "profile_in_use": False,
+                "executable_exists": True,
+                "user_data_dir_writable": True,
+            }
+            first_started = asyncio.Event()
+            release_first = asyncio.Event()
+            observed_prompts = []
+
+            async def fake_query_inner(prompt, target, timeout, call_id, preflight):
+                observed_prompts.append(prompt)
+                if prompt == "first":
+                    first_started.set()
+                    await release_first.wait()
+                return "OK", f"https://chatgpt.com/c/{prompt}-conversation"
+
+            adapter._query_inner = fake_query_inner
+            first = asyncio.create_task(adapter.query("first", project_root=str(root / "project-a")))
+            await asyncio.wait_for(first_started.wait(), timeout=1)
+            second = asyncio.create_task(adapter.query("second", project_root=str(root / "project-b")))
+            await asyncio.sleep(0.02)
+            self.assertEqual(observed_prompts, ["first"])
+            release_first.set()
+            self.assertEqual(await first, "OK")
+            self.assertEqual(await second, "OK")
+            self.assertEqual(observed_prompts, ["first", "second"])
+
+    async def test_shutdown_browser_closes_cached_context_and_playwright(self):
+        with tempfile.TemporaryDirectory() as temp:
+            adapter = ChatGPTWebAdapter(str(temp), {"web_adapter": {}, "runtime": {}}, logger=None)
+
+            class Context:
+                def __init__(self):
+                    self.pages = []
+                    self.closed = False
+
+                async def close(self):
+                    self.closed = True
+
+            class Playwright:
+                def __init__(self):
+                    self.stopped = False
+
+                async def stop(self):
+                    self.stopped = True
+
+            context = Context()
+            playwright = Playwright()
+            adapter._browser_context = context
+            adapter._playwright = playwright
+
+            result = await adapter.shutdown_browser()
+
+            self.assertIn("BRIDGE_BROWSER_SHUTDOWN_OK", result)
+            self.assertTrue(context.closed)
+            self.assertTrue(playwright.stopped)
+            self.assertIsNone(adapter._browser_context)
+            self.assertIsNone(adapter._playwright)
+
     async def test_second_project_request_uses_saved_conversation(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

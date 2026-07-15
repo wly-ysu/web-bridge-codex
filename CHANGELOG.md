@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0
+
+- Keep one dedicated ChatGPT Web browser context alive inside the MCP process after its first successful launch.
+- Open and close only the request tab for each Web call while preserving a single `about:blank` keepalive tab.
+- Serialize requests that share one AI Chrome profile, preventing cross-project tab and response races.
+- Add `bridge_browser_status` and `bridge_browser_shutdown` for worker diagnostics and controlled profile release.
+- Extend release MCP-tool verification for the new browser-worker tools.
+
 ## 0.4.0
 
 - Reuse one ChatGPT Web conversation per local project by default.

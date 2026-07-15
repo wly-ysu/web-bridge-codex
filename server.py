@@ -669,11 +669,44 @@ No browser or heavy workspace read is used. Returns a compact health summary.
             f"tool_timeout_seconds={tool_timeout_seconds}",
             f"web_query_timeout_seconds={runtime_cfg.get('web_query_timeout_seconds', 150)}",
             f"conversation_reuse_enabled={config.get('conversation_reuse', {}).get('enabled', True)}",
-            "tools_loaded=route_to_web_lead,ask_web_architect,review_web_code,debug_web_error,bridge_health_check,bridge_chrome_preflight,bridge_chrome_smoke_test,bridge_chrome_lifecycle_test,bridge_tab_health_check,bridge_close_extra_tabs",
+            "tools_loaded=route_to_web_lead,ask_web_architect,review_web_code,debug_web_error,bridge_health_check,bridge_chrome_preflight,bridge_chrome_smoke_test,bridge_chrome_lifecycle_test,bridge_tab_health_check,bridge_close_extra_tabs,bridge_browser_status,bridge_browser_shutdown",
         ]
         result = "\n".join(lines)
         _log_stage("mcp.bridge_health_check.return")
         return result
+
+    @server.tool(
+        description="""Show whether the ChatGPT Web browser worker is currently alive and how many tabs it owns."""
+    )
+    async def bridge_browser_status() -> str:
+        _log_stage("mcp.bridge_browser_status.enter")
+        try:
+            if not hasattr(adapter, "browser_status"):
+                return "BRIDGE_BROWSER_STATUS_UNAVAILABLE\nreason=adapter does not expose browser_status"
+            result = adapter.browser_status()
+            _log_stage("mcp.bridge_browser_status.return")
+            return result
+        except Exception as exc:
+            _log_stage("mcp.bridge_browser_status.error")
+            return f"BRIDGE_BROWSER_STATUS_FAILED\nreason={type(exc).__name__}: {exc}"
+
+    @server.tool(
+        description="""Manually close the persistent ChatGPT Web browser worker and release the AI Chrome profile."""
+    )
+    async def bridge_browser_shutdown() -> str:
+        _log_stage("mcp.bridge_browser_shutdown.enter")
+        try:
+            if not hasattr(adapter, "shutdown_browser"):
+                return "BRIDGE_BROWSER_SHUTDOWN_UNAVAILABLE\nreason=adapter does not expose shutdown_browser"
+            result = await asyncio.wait_for(adapter.shutdown_browser(), timeout=tool_timeout_seconds)
+            _log_stage("mcp.bridge_browser_shutdown.return")
+            return result
+        except asyncio.TimeoutError:
+            _log_stage("mcp.bridge_browser_shutdown.timeout")
+            return _tool_timeout_error("bridge_browser_shutdown", "mcp.bridge_browser_shutdown.timeout", tool_timeout_seconds)
+        except Exception as exc:
+            _log_stage("mcp.bridge_browser_shutdown.error")
+            return f"BRIDGE_BROWSER_SHUTDOWN_FAILED\nreason={type(exc).__name__}: {exc}"
 
     @server.tool(
         description="""Check Chrome executable and profile readiness for ChatGPT Web launch."""

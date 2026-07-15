@@ -131,6 +131,25 @@ the project's saved conversation. If a saved Web conversation was explicitly del
 longer accessible, the bridge creates one replacement conversation once; temporary network or
 generation failures do not create new chats.
 
+### Browser worker lifecycle
+
+The ChatGPT Web browser is kept alive inside the MCP process after the first successful Web call.
+Each request opens a fresh ChatGPT tab, waits for the answer, then closes only that request tab.
+The browser context itself is preserved so later requests do not cold-start Chrome again.
+
+A single `about:blank` tab may remain open as a keepalive tab. This is intentional: closing the
+last tab can close the Chrome window and release the persistent profile. The bridge does not
+depend on the foreground tab when closing a request tab; Playwright closes the exact page object
+created for that request.
+
+For stability, one Chrome profile is operated serially. If two projects ask Web Lead at the same
+time, the second request waits until the first request finishes. This avoids shared-profile races,
+mixed streaming responses, and `profile_in_use` failures while still preserving per-project
+ChatGPT conversation URLs.
+
+Use `bridge_browser_status` to inspect the live worker and `bridge_browser_shutdown` to manually
+close the persistent browser when upgrading or troubleshooting.
+
 ### Required Codex integration layers
 
 The delivery has two required, separate layers. Both must be present after a Windows install:
@@ -428,6 +447,14 @@ Output:
 - This MVP focuses on safe, targeted context upload (no full-repo dump).
 - Sensitive paths are filtered by default (`.git`, `build`, `log`, `data`, `weights`, `*.bag`, `*.pcd`).
 - Playwright web mode assumes a login-capable browser profile; first-run may require manual ChatGPT authentication.
+
+## Feedback and issues
+
+If you run into a problem, please open a GitHub Issue:
+
+- https://github.com/wly-ysu/web-bridge-codex/issues
+
+We review reported issues and will do our best to help or fix confirmed problems based on impact and maintenance priority.
 
 ## 6) Web Adapter Real-Call Acceptance Checklist
 

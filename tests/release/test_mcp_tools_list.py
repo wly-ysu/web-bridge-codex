@@ -45,7 +45,13 @@ async def main() -> None:
             await session.initialize()
             tools = (await session.list_tools()).tools
             names = {tool.name for tool in tools}
-    missing = {"bridge_health_check", "ask_web_architect", "route_to_web_lead"} - names
+    missing = {
+        "bridge_health_check",
+        "bridge_browser_status",
+        "bridge_browser_shutdown",
+        "ask_web_architect",
+        "route_to_web_lead",
+    } - names
     if missing:
         raise SystemExit(f"Missing compiled MCP tools: {', '.join(sorted(missing))}")
     by_name = {tool.name: tool for tool in tools}
