@@ -873,8 +873,14 @@ class _BrokerSelfTestAdapter:
         self.max_concurrency = 0
         self.query_count = 0
 
-    async def query(self, prompt: str, project_root: str | None = None, conversation_mode: str = "reuse_or_create") -> str:
-        del project_root, conversation_mode
+    async def query(
+        self,
+        prompt: str,
+        project_root: str | None = None,
+        conversation_mode: str = "reuse_or_create",
+        request_origin: str = "",
+    ) -> str:
+        del project_root, conversation_mode, request_origin
         self.active += 1
         self.max_concurrency = max(self.max_concurrency, self.active)
         try:
