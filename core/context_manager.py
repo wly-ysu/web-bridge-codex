@@ -53,6 +53,43 @@ class ContextBundle:
         return "\n".join(lines)
 
 
+@dataclass(frozen=True)
+class RepositoryLinkBundle:
+    repository_url: str
+    branch: str
+    commit: str
+    commit_url: str
+    working_tree_clean: bool
+
+    @property
+    def reviewable(self) -> bool:
+        return bool(self.repository_url and self.commit_url and self.working_tree_clean)
+
+    @property
+    def review_block_reason(self) -> str:
+        if not self.repository_url or not self.commit_url:
+            return "github_commit_link_unavailable"
+        if not self.working_tree_clean:
+            return "working_tree_has_uncommitted_changes"
+        return ""
+
+    def to_prompt_text(self) -> str:
+        lines = [
+            "Repository context is link-only.",
+            "No local source, diff, logs, or machine paths were transferred.",
+            f"Repository URL: {self.repository_url or '<unavailable>'}",
+            f"Branch: {self.branch or '<unknown>'}",
+            f"Commit: {self.commit or '<unavailable>'}",
+            f"Commit URL: {self.commit_url or '<unavailable>'}",
+            f"Working tree clean: {str(self.working_tree_clean).lower()}",
+        ]
+        if self.reviewable:
+            lines.append("Review target: inspect the linked GitHub commit or pull request.")
+        else:
+            lines.append("Review target is unavailable locally; commit changes and provide a GitHub commit or PR link first.")
+        return "\n".join(lines)
+
+
 class ContextManager:
     def __init__(self, workspace_root: str | Path, config: dict[str, Any]):
         self.root = Path(workspace_root).resolve()
@@ -66,6 +103,7 @@ class ContextManager:
         self.sensitive_patterns = set(self.project_cfg.get("sensitive_patterns", []))
 
         self.context_enabled = bool(self.context_cfg.get("enabled", True))
+        self.context_transport = str(self.context_cfg.get("transport", "repo_link")).strip().lower()
         self.personal_mode = bool(self.bridge_cfg.get("personal_mode", True))
         self.allow_workspace_context = bool(
             self.personal_mode and self.context_enabled and self.bridge_cfg.get("allow_workspace_context", True)
@@ -76,6 +114,21 @@ class ContextManager:
         self.max_logs = int(self.context_cfg.get("max_logs", 3))
         self.max_log_chars = int(self.context_cfg.get("max_log_chars", 8000))
         self.max_diff_chars = int(self.git_cfg.get("max_diff_chars", 12000))
+
+    def repository_context(self) -> RepositoryLinkBundle:
+        workspace = git_utils.get_repo_root(self.root) or self.root
+        repository_url = git_utils.get_repository_url(workspace)
+        commit = git_utils.get_commit(workspace)
+        commit_url = ""
+        if repository_url.startswith("https://github.com/") and commit:
+            commit_url = f"{repository_url}/commit/{commit}"
+        return RepositoryLinkBundle(
+            repository_url=repository_url,
+            branch=git_utils.get_branch(workspace),
+            commit=commit,
+            commit_url=commit_url,
+            working_tree_clean=not bool(git_utils.get_status(workspace)),
+        )
 
     def _extract_keywords(self, text: str) -> list[str]:
         raw_words = re.findall(r"[A-Za-z0-9_./-]{3,}", text.lower())
@@ -175,6 +228,8 @@ class ContextManager:
         return dedup
 
     def collect(self, task: str, context_hints: Sequence[str] | None = None, include_diff: bool = True) -> str:
+        if self.context_transport != "workspace_text":
+            return self.repository_context().to_prompt_text()
         if not self.allow_workspace_context:
             return (
                 "Local workspace context transfer is disabled by configuration. "

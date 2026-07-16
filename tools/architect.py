@@ -43,15 +43,15 @@ class ArchitectAgent:
         logging.info("[ARCH] run enter")
         self._set_stage("architect.run.enter")
 
-        if include_workspace_context:
+        if include_workspace_context and self.context_manager.context_transport == "workspace_text":
             logging.info("[ARCH] before context collect")
             self._set_stage("context.collect.start")
             context = self.context_manager.collect(question, context_hints=context_hints, include_diff=False)
             self._set_stage("context.collect.done")
         else:
-            logging.info("[ARCH] workspace context disabled")
-            self._set_stage("context.collect.skipped")
-            context = "No local workspace context was included for this request."
+            logging.info("[ARCH] using repository link context")
+            self._set_stage("context.repo_link")
+            context = self.context_manager.repository_context().to_prompt_text()
 
         logging.info("[ARCH] before prompt build")
         self._set_stage("architect.prompt.build.start")

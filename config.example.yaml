@@ -5,6 +5,8 @@ git:
   max_diff_chars: 14000
 
 context:
+  # Default external context: repository / commit links only, never local file text.
+  transport: repo_link
   enabled: true
   max_file_chars: 8000
   max_related_files: 8
@@ -13,7 +15,8 @@ context:
 
 bridge:
   personal_mode: true
-  allow_workspace_context: true
+  # Set true together with context.transport=workspace_text only for legacy local-text transfer.
+  allow_workspace_context: false
 
 workflow:
   mode: web_first
