@@ -38,6 +38,7 @@ class ArchitectAgent:
         context_hints: list[str] | None = None,
         include_workspace_context: bool = False,
         conversation_mode: str = "reuse_or_create",
+        request_origin: str = "interactive",
     ) -> str:
         logging.info("[ARCH] run enter")
         self._set_stage("architect.run.enter")
@@ -63,6 +64,7 @@ class ArchitectAgent:
             prompt,
             project_root=str(self.context_manager.root),
             conversation_mode=conversation_mode,
+            request_origin=request_origin,
         )
         self._set_stage("adapter.query.done")
         logging.info("[ARCH] after adapter.query")

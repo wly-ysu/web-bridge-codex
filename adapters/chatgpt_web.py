@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from core.project_sessions import ProjectSessionRegistry, project_key, sanitize_conversation_url
+from core.request_contract import RequestContractError, normalize_request_contract
 from core.response_state import PageSnapshot, ResponseRequestState, ResponseState, text_fingerprint
 
 
@@ -36,6 +37,8 @@ class ChatGPTWebAdapter:
         self._playwright = None
         self._browser_launch_args: list[str] = []
         self._browser_user_data_dir: str | None = None
+        self._browser_context_generation = 0
+        self._browser_context_invalidated = False
         self._browser_lock = asyncio.Lock()
         self._request_lock = asyncio.Lock()
         self._broker_client = None
@@ -462,14 +465,59 @@ if ($null -eq $procs) { "[]" } else { $procs }
             return close_error
 
     def _browser_context_alive(self) -> bool:
+        return self._browser_context is not None and not self._browser_context_invalidated
+
+    def _on_browser_context_closed(self, generation: int) -> None:
+        if generation != self._browser_context_generation:
+            return
+        self._browser_context_invalidated = True
+        self._set_stage(
+            "web.browser.context.invalidated",
+            context_generation=generation,
+            reason="close_event",
+        )
+
+    @staticmethod
+    def _is_context_closed_error(exc: BaseException) -> bool:
+        message = str(exc).lower()
+        return "target page, context or browser has been closed" in message or "targetclosed" in message
+
+    def _should_retry_context_recovery(
+        self,
+        exc: BaseException,
+        *,
+        prompt_send_attempted: bool,
+        recovery_attempt: int,
+    ) -> bool:
+        return (
+            not prompt_send_attempted
+            and recovery_attempt == 0
+            and self._is_context_closed_error(exc)
+        )
+
+    async def _discard_cached_browser_context_locked(self, call_id: str, reason: str) -> None:
         context = self._browser_context
-        if context is None:
-            return False
-        try:
-            _ = context.pages
-            return True
-        except Exception:
-            return False
+        playwright = self._playwright
+        self._browser_context = None
+        self._playwright = None
+        self._browser_launch_args = []
+        self._browser_user_data_dir = None
+        self._browser_context_invalidated = True
+        self._set_stage("web.browser.context.discard", call_id=call_id, reason=reason)
+        await self._safe_close_context(context, call_id, stage_prefix="web.browser.context")
+        if playwright is not None:
+            try:
+                await playwright.stop()
+            except Exception as exc:
+                self._set_stage(
+                    "web.browser.playwright.stop.warning",
+                    call_id=call_id,
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+
+    async def _invalidate_cached_browser_context(self, call_id: str, reason: str) -> None:
+        async with self._browser_lock:
+            await self._discard_cached_browser_context_locked(call_id, reason)
 
     async def _ensure_browser_context(self, preflight: dict[str, object], call_id: str):
         async with self._browser_lock:
@@ -481,6 +529,9 @@ if ($null -eq $procs) { "[]" } else { $procs }
                     page_count=len(self._browser_context.pages),
                 )
                 return self._browser_context, self._browser_launch_args, self._browser_user_data_dir or str(preflight.get("user_data_dir", "")), True
+
+            if self._browser_context is not None or self._playwright is not None:
+                await self._discard_cached_browser_context_locked(call_id, "cached_context_not_alive")
 
             from playwright.async_api import async_playwright
 
@@ -502,6 +553,17 @@ if ($null -eq $procs) { "[]" } else { $procs }
             self._browser_context = context
             self._browser_launch_args = launch_args
             self._browser_user_data_dir = user_data_dir
+            self._browser_context_generation += 1
+            self._browser_context_invalidated = False
+            generation = self._browser_context_generation
+            try:
+                context.on("close", lambda: self._on_browser_context_closed(generation))
+            except Exception as exc:
+                self._set_stage(
+                    "web.browser.context.close_listener.warning",
+                    call_id=call_id,
+                    error=f"{type(exc).__name__}: {exc}",
+                )
             self._set_stage(
                 "web.browser.worker.ready",
                 call_id=call_id,
@@ -520,6 +582,7 @@ if ($null -eq $procs) { "[]" } else { $procs }
         self._playwright = None
         self._browser_launch_args = []
         self._browser_user_data_dir = None
+        self._browser_context_invalidated = True
         close_warning = None
         stop_warning = None
         if context is not None:
@@ -1033,16 +1096,26 @@ if ($null -eq $procs) { "[]" } else { $procs }
             page_url_after_goto,
         )
 
-    async def _query_inner(self, prompt: str, base_url: str, prompt_timeout_ms: int, call_id: str, preflight: dict[str, object]) -> tuple[str, str | None]:
-        browser = None
-        page = None
-        observer_installed = False
-        close_error: str | None = None
-        page_close_error: str | None = None
-        result_text: str | None = None
-        error_text: str | None = None
-        try:
-            browser, launch_args, user_data_dir, reused_context = await self._ensure_browser_context(preflight, call_id)
+    async def _open_request_page_with_recovery(
+        self,
+        *,
+        call_id: str,
+        base_url: str,
+        preflight: dict[str, object] | None = None,
+    ) -> tuple[object, object, int]:
+        """Open one request page, recreating a closed cached context once.
+
+        This helper runs before any input interaction, so recovery can never
+        duplicate a prompt whose delivery status is uncertain.
+        """
+
+        recovery_attempt = 0
+        effective_preflight = preflight or self.run_chrome_preflight()
+        while True:
+            browser, launch_args, user_data_dir, reused_context = await self._ensure_browser_context(
+                effective_preflight,
+                call_id,
+            )
             self._log(
                 "info",
                 "persistent context config",
@@ -1053,28 +1126,58 @@ if ($null -eq $procs) { "[]" } else { $procs }
                     "channel": self.cfg.get("channel"),
                     "launch_args": launch_args,
                     "reused_context": reused_context,
+                    "recovery_attempt": recovery_attempt,
                 },
             )
+            try:
+                if self._tab_cleanup_config()["cleanup_before_query"]:
+                    await self._safe_cleanup_browser_tabs(browser, call_id, phase="before_query")
+                page, *_ = await self._open_fresh_page(
+                    browser,
+                    base_url,
+                    call_id,
+                    page_stage_prefix="web.query",
+                    goto_stage_prefix="web",
+                    goto_timeout_ms=120000,
+                )
+                return browser, page, recovery_attempt
+            except Exception as exc:
+                if not self._should_retry_context_recovery(
+                    exc,
+                    prompt_send_attempted=False,
+                    recovery_attempt=recovery_attempt,
+                ):
+                    raise
+                self._set_stage(
+                    "web.browser.context.recovery.start",
+                    call_id=call_id,
+                    recovery_attempt=recovery_attempt + 1,
+                    reason="context_closed_before_prompt",
+                )
+                await self._invalidate_cached_browser_context(
+                    call_id=call_id,
+                    reason="context_closed_before_prompt",
+                )
+                recovery_attempt += 1
+                self._set_stage(
+                    "web.browser.context.recovery.done",
+                    call_id=call_id,
+                    recovery_attempt=recovery_attempt,
+                )
 
-            if self._tab_cleanup_config()["cleanup_before_query"]:
-                await self._safe_cleanup_browser_tabs(browser, call_id, phase="before_query")
-
-            (
-                page,
-                _,
-                _,
-                _,
-                _,
-                _,
-                _,
-                _,
-            ) = await self._open_fresh_page(
-                browser,
-                base_url,
-                call_id,
-                page_stage_prefix="web.query",
-                goto_stage_prefix="web",
-                goto_timeout_ms=120000,
+    async def _query_inner(self, prompt: str, base_url: str, prompt_timeout_ms: int, call_id: str, preflight: dict[str, object]) -> tuple[str, str | None]:
+        browser = None
+        page = None
+        observer_installed = False
+        close_error: str | None = None
+        page_close_error: str | None = None
+        result_text: str | None = None
+        error_text: str | None = None
+        try:
+            browser, page, _ = await self._open_request_page_with_recovery(
+                call_id=call_id,
+                base_url=base_url,
+                preflight=preflight,
             )
 
             expected_conversation = sanitize_conversation_url(base_url)
@@ -1238,10 +1341,19 @@ if ($null -eq $procs) { "[]" } else { $procs }
         prompt: str,
         project_root: str | None = None,
         conversation_mode: str = "reuse_or_create",
+        request_origin: str = "interactive",
     ) -> str:
+        try:
+            contract = normalize_request_contract(conversation_mode, request_origin)
+        except RequestContractError as exc:
+            return self._raise_web_error("conversation.mode", str(exc))
+        if contract.legacy_mode_normalized:
+            self._set_stage("web.request_contract.legacy_mode_normalized", request_origin=contract.request_origin)
+        conversation_mode = contract.conversation_mode
+        request_origin = contract.request_origin
         if self._broker_client is not None:
             self._set_stage("web.broker.forward.start", project_key=project_key(project_root or self.workspace))
-            result = await self._broker_client.query(prompt, project_root, conversation_mode)
+            result = await self._broker_client.query(prompt, project_root, conversation_mode, request_origin)
             self._set_stage(
                 "web.broker.forward.done" if not result.startswith("[WEB_ERROR]") else "web.broker.forward.error",
                 project_key=project_key(project_root or self.workspace),
@@ -1287,9 +1399,7 @@ if ($null -eq $procs) { "[]" } else { $procs }
 
         browser_launch_timeout = self._runtime_seconds("browser_launch_timeout_seconds", 45)
 
-        normalized_mode = str(conversation_mode or "reuse_or_create").lower()
-        if normalized_mode not in {"reuse_or_create", "new", "one_shot"}:
-            return self._raise_web_error("conversation.mode", "invalid_conversation_mode", {"conversation_mode": conversation_mode})
+        normalized_mode = conversation_mode
         reuse_enabled = bool(self.conversation_cfg.get("enabled", True)) and normalized_mode != "one_shot" and bool(project_root)
         session = None
         key = ""

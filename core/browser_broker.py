@@ -20,7 +20,7 @@ from typing import Any
 
 
 BROKER_PROTOCOL = 1
-BROKER_VERSION = "0.6.3"
+BROKER_VERSION = "0.6.4"
 MAX_MESSAGE_BYTES = 16 * 1024 * 1024
 
 
@@ -277,7 +277,7 @@ class BrowserBrokerClient:
             ]
         )
 
-    def _query_sync(self, prompt: str, project_root: str | None, conversation_mode: str) -> str:
+    def _query_sync(self, prompt: str, project_root: str | None, conversation_mode: str, request_origin: str) -> str:
         request_id = uuid.uuid4().hex
         try:
             state = self._ensure_server()
@@ -289,6 +289,7 @@ class BrowserBrokerClient:
             "prompt": prompt,
             "project_root": project_root,
             "conversation_mode": conversation_mode,
+            "request_origin": request_origin,
         }
         try:
             response = self._exchange(state, payload, timeout=self.request_timeout)
@@ -305,8 +306,8 @@ class BrowserBrokerClient:
             return self._web_error("browser.broker", str(response.get("error", "unknown_error")), "false", True)
         return str(response.get("result", ""))
 
-    async def query(self, prompt: str, project_root: str | None, conversation_mode: str) -> str:
-        return await asyncio.to_thread(self._query_sync, prompt, project_root, conversation_mode)
+    async def query(self, prompt: str, project_root: str | None, conversation_mode: str, request_origin: str = "interactive") -> str:
+        return await asyncio.to_thread(self._query_sync, prompt, project_root, conversation_mode, request_origin)
 
     def call_sync(self, method: str, **kwargs: Any) -> Any:
         state = self._ensure_server()
@@ -424,6 +425,7 @@ class BrowserBrokerServer:
                         str(request.get("prompt", "")),
                         project_root=request.get("project_root"),
                         conversation_mode=str(request.get("conversation_mode") or "reuse_or_create"),
+                        request_origin=str(request.get("request_origin") or "interactive"),
                     )
                 else:
                     method_name = str(request.get("method", ""))

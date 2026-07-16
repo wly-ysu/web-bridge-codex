@@ -441,6 +441,7 @@ is unavailable.
         profile: str | None = None,
         execute_after_plan: bool = True,
         conversation_mode: str = "reuse_or_create",
+        request_origin: str = "interactive",
     ) -> str:
         """
         Ask Web Lead to refine a vague request and produce Codex execution steps.
@@ -477,6 +478,7 @@ is unavailable.
                     context_hints=None,
                     include_workspace_context=False,
                     conversation_mode=conversation_mode,
+                    request_origin=request_origin,
                 ),
                 timeout=tool_timeout_seconds,
             )
@@ -499,6 +501,7 @@ is unavailable.
         include_workspace_context: bool = False,
         profile: str | None = None,
         conversation_mode: str = "reuse_or_create",
+        request_origin: str = "interactive",
     ) -> str:
         selected_profile = profile or str(config.get("web_lead", {}).get("default_profile", "balanced"))
         _log_stage(
@@ -525,6 +528,7 @@ is unavailable.
                     context_hints=context_hints or None,
                     include_workspace_context=include_workspace_context,
                     conversation_mode=conversation_mode,
+                    request_origin=request_origin,
                 ),
                 timeout=tool_timeout_seconds,
             )
@@ -560,6 +564,7 @@ available.
         include_workspace_context: bool = False,
         profile: str | None = None,
         conversation_mode: str = "reuse_or_create",
+        request_origin: str = "interactive",
     ) -> str:
         """
         Ask ChatGPT Web to provide architectural guidance for a technical question.
@@ -571,6 +576,7 @@ available.
             include_workspace_context=include_workspace_context,
             profile=profile,
             conversation_mode=conversation_mode,
+            request_origin=request_origin,
         )
 
     async def _run_review_tool(
