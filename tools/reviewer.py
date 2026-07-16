@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from utils import git_utils
 from core.context_manager import ContextManager
 from core.prompt_router import build_review_prompt
 
@@ -24,18 +23,19 @@ class ReviewerAgent:
         diff: bool = True,
         focus: str | None = None,
     ) -> str:
-        workspace = git_utils.get_repo_root(self.context_manager.root) or self.context_manager.root
-        file_hint_text = " ".join(files or [])
+        workspace = self.context_manager.root
+        repository = self.context_manager.repository_context()
+        if not repository.reviewable:
+            return "\n".join(
+                [
+                    "[REPOSITORY_LINK_REQUIRED]",
+                    f"reason={repository.review_block_reason}",
+                    "Commit the changes or create a GitHub PR before requesting Web review.",
+                ]
+            )
         question = "Review current code changes."
         if focus:
             question += f" Focus: {focus}."
-        if file_hint_text:
-            question += f" Target files: {file_hint_text}"
-
-        context = self.context_manager.collect(
-            question,
-            context_hints=files,
-            include_diff=diff,
-        )
-        prompt = self.prompt_router(git_utils.get_diff(workspace), context, focus=focus)
+        context = repository.to_prompt_text()
+        prompt = self.prompt_router(question, context, focus=focus)
         return await self.adapter.query(prompt, project_root=str(workspace))

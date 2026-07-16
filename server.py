@@ -441,6 +441,7 @@ is unavailable.
         profile: str | None = None,
         execute_after_plan: bool = True,
         conversation_mode: str = "reuse_or_create",
+        request_origin: str = "interactive",
     ) -> str:
         """
         Ask Web Lead to refine a vague request and produce Codex execution steps.
@@ -477,6 +478,7 @@ is unavailable.
                     context_hints=None,
                     include_workspace_context=False,
                     conversation_mode=conversation_mode,
+                    request_origin=request_origin,
                 ),
                 timeout=tool_timeout_seconds,
             )
@@ -499,6 +501,7 @@ is unavailable.
         include_workspace_context: bool = False,
         profile: str | None = None,
         conversation_mode: str = "reuse_or_create",
+        request_origin: str = "interactive",
     ) -> str:
         selected_profile = profile or str(config.get("web_lead", {}).get("default_profile", "balanced"))
         _log_stage(
@@ -525,6 +528,7 @@ is unavailable.
                     context_hints=context_hints or None,
                     include_workspace_context=include_workspace_context,
                     conversation_mode=conversation_mode,
+                    request_origin=request_origin,
                 ),
                 timeout=tool_timeout_seconds,
             )
@@ -546,9 +550,9 @@ is unavailable.
     @server.tool(
         description="""Ask the user's ChatGPT Web session for AI Tech Lead guidance.
 
-By default this tool sends only the explicit question text and does not read or
-send local workspace files. Set include_workspace_context=true only when the
-user explicitly wants repository context included in the ChatGPT Web request.
+By default this tool sends the explicit question plus a GitHub repository and
+commit link when available. It does not send local workspace files, diffs,
+logs, or machine paths in the default repo_link transport mode.
 The adapter uses the best available model in the user's ChatGPT Web account and
 falls back to the currently selected web model when preferred models are not
 available.
@@ -560,6 +564,7 @@ available.
         include_workspace_context: bool = False,
         profile: str | None = None,
         conversation_mode: str = "reuse_or_create",
+        request_origin: str = "interactive",
     ) -> str:
         """
         Ask ChatGPT Web to provide architectural guidance for a technical question.
@@ -571,6 +576,7 @@ available.
             include_workspace_context=include_workspace_context,
             profile=profile,
             conversation_mode=conversation_mode,
+            request_origin=request_origin,
         )
 
     async def _run_review_tool(
@@ -599,10 +605,10 @@ available.
         return answer
 
     @server.tool(
-        description="""Review local code changes with the user-provided repository context.
+        description="""Review a committed GitHub repository change with ChatGPT Web.
 
-When this MCP server runs in personal mode with context enabled, the provided
-local context is merged into the prompt sent to the current ChatGPT Web model.
+The default repo_link transport sends only the repository and commit link. The
+working tree must be clean so Web review always targets the exact linked code.
 """
     )
     async def review_web_code(
@@ -611,7 +617,7 @@ local context is merged into the prompt sent to the current ChatGPT Web model.
         focus: str | None = None,
     ) -> str:
         """
-        Review code using local git diff and repository context.
+        Review the current committed GitHub code using repository-link context.
         """
         return await _run_review_tool("review_web_code", files=files, diff=diff, focus=focus)
 

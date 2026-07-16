@@ -424,6 +424,16 @@ Output:
 
 - `"<answer>"`
 
+### Repository-link context (default)
+
+Web Lead receives the GitHub repository URL, branch, and committed GitHub URL when
+available. It does not receive local source text, Git diff text, logs, or local
+machine paths. `review_web_code` requires a clean working tree so it can review
+the exact linked commit; commit or open a PR before requesting Web review.
+
+Set `context.transport: workspace_text` and explicitly opt in only if a legacy
+local-text workflow is required.
+
 ### `review_web_code`
 
 Input:

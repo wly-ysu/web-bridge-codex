@@ -110,12 +110,12 @@ Execution context:
 """
 
 
-def build_review_prompt(diff: str, context: str, focus: str | None = None) -> str:
+def build_review_prompt(review_request: str, context: str, focus: str | None = None) -> str:
     focus_block = f"\nReview focus: {focus}\n" if focus else ""
     return f"""{REVIEWER_PROMPT}
 {focus_block}
-Diff:
-{diff}
+Review request:
+{review_request}
 
 Extra context:
 {context}

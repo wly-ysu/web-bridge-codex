@@ -37,3 +37,17 @@ def get_branch(path: Path) -> str:
 
 def get_diff(path: Path) -> str:
     return _run_git(path, ["diff", "--"], timeout=6)
+
+
+def get_commit(path: Path) -> str:
+    return _run_git(path, ["rev-parse", "HEAD"], timeout=4)
+
+
+def get_repository_url(path: Path) -> str:
+    """Return a browser-safe origin URL without exposing local paths."""
+    remote = _run_git(path, ["remote", "get-url", "origin"], timeout=4)
+    if remote.startswith("git@github.com:"):
+        remote = "https://github.com/" + remote.removeprefix("git@github.com:")
+    elif remote.startswith("ssh://git@github.com/"):
+        remote = "https://github.com/" + remote.removeprefix("ssh://git@github.com/")
+    return remote.removesuffix(".git").rstrip("/")

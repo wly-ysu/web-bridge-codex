@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from core.context_manager import ContextManager
 from core.prompt_router import build_debug_prompt
 
@@ -14,12 +13,8 @@ class DebuggerAgent:
         self.prompt_router = prompt_router
 
     async def run(self, error_text: str, log_path: str | None = None, context_hints: list[str] | None = None) -> str:
-        context_text = error_text
+        context = self.context_manager.repository_context().to_prompt_text()
         if log_path:
-            try:
-                context_text = f"{context_text}\n\nLog from {log_path}:\n{Path(log_path).read_text(encoding='utf-8', errors='replace')}"
-            except Exception:
-                pass
-        context = self.context_manager.collect(context_text, context_hints=context_hints, include_diff=False)
+            context += "\nA local log path was supplied but its contents were not transferred."
         prompt = self.prompt_router(error_text, context)
         return await self.adapter.query(prompt, project_root=str(self.context_manager.root))
