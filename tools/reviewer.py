@@ -24,7 +24,7 @@ class ReviewerAgent:
         focus: str | None = None,
     ) -> str:
         workspace = self.context_manager.root
-        repository = self.context_manager.repository_context()
+        repository = await self.context_manager.repository_context_async()
         if not repository.reviewable:
             return "\n".join(
                 [

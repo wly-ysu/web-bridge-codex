@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -128,6 +130,25 @@ class ContextManager:
             commit=commit,
             commit_url=commit_url,
             working_tree_clean=not bool(git_utils.get_status(workspace)),
+        )
+
+    async def repository_context_async(self, timeout_seconds: float = 5.0) -> RepositoryLinkBundle:
+        """Collect repository metadata without allowing Git to block an MCP request."""
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(self.repository_context),
+                timeout=timeout_seconds,
+            )
+        except TimeoutError:
+            logging.warning("[STAGE] context.repo_link.timeout timeout_seconds=%s", timeout_seconds)
+        except Exception as exc:
+            logging.warning("[STAGE] context.repo_link.unavailable reason=%s", type(exc).__name__)
+        return RepositoryLinkBundle(
+            repository_url="",
+            branch="",
+            commit="",
+            commit_url="",
+            working_tree_clean=False,
         )
 
     def _extract_keywords(self, text: str) -> list[str]:
