@@ -13,7 +13,7 @@ class DebuggerAgent:
         self.prompt_router = prompt_router
 
     async def run(self, error_text: str, log_path: str | None = None, context_hints: list[str] | None = None) -> str:
-        context = self.context_manager.repository_context().to_prompt_text()
+        context = (await self.context_manager.repository_context_async()).to_prompt_text()
         if log_path:
             context += "\nA local log path was supplied but its contents were not transferred."
         prompt = self.prompt_router(error_text, context)

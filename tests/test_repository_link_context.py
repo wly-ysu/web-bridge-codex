@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import tempfile
 import unittest
 from pathlib import Path
@@ -39,6 +40,20 @@ class RepositoryLinkContextTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("Git diff:", context)
             self.assertIn("No local source, diff, logs, or machine paths", context)
 
+    async def test_repo_link_timeout_returns_a_safe_unavailable_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manager = self._manager(Path(temp_dir))
+
+            def block() -> RepositoryLinkBundle:
+                time.sleep(0.1)
+                raise AssertionError("should not be awaited after timeout")
+
+            with patch.object(manager, "repository_context", side_effect=block):
+                bundle = await manager.repository_context_async(timeout_seconds=0.01)
+
+            self.assertFalse(bundle.reviewable)
+            self.assertNotIn(str(temp_dir), bundle.to_prompt_text())
+
     async def test_dirty_review_stops_locally_without_calling_web(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -47,7 +62,7 @@ class RepositoryLinkContextTests(unittest.IsolatedAsyncioTestCase):
                 def __init__(self) -> None:
                     self.root = root
 
-                def repository_context(self) -> RepositoryLinkBundle:
+                async def repository_context_async(self) -> RepositoryLinkBundle:
                     return RepositoryLinkBundle(
                         repository_url="https://github.com/example/demo",
                         branch="main",
@@ -77,7 +92,7 @@ class RepositoryLinkContextTests(unittest.IsolatedAsyncioTestCase):
                 def __init__(self) -> None:
                     self.root = root
 
-                def repository_context(self) -> RepositoryLinkBundle:
+                async def repository_context_async(self) -> RepositoryLinkBundle:
                     return RepositoryLinkBundle(
                         repository_url="https://github.com/example/demo",
                         branch="main",

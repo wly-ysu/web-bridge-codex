@@ -51,7 +51,7 @@ class ArchitectAgent:
         else:
             logging.info("[ARCH] using repository link context")
             self._set_stage("context.repo_link")
-            context = self.context_manager.repository_context().to_prompt_text()
+            context = (await self.context_manager.repository_context_async()).to_prompt_text()
 
         logging.info("[ARCH] before prompt build")
         self._set_stage("architect.prompt.build.start")
