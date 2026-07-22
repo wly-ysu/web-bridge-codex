@@ -2856,12 +2856,52 @@ if ($null -eq $procs) { "[]" } else { $procs }
         self._log("warning", "unable to open model selector", {"call_id": call_id})
         return False
 
+    async def _open_capability_menu(self, page, call_id: str) -> bool:
+        """Open ChatGPT's reasoning-level menu without assuming a model version.
+
+        Current ChatGPT Web builds expose the reasoning selector separately from
+        the model switcher. The visible control may be labelled with the current
+        level (for example ``中`` or ``极高``), so use exact visible control text
+        rather than a version-specific model selector.
+        """
+        labels = [
+            "智能", "极速", "中", "高", "极高", "Pro",
+            "Intelligent", "Fast", "Medium", "High", "Very High", "Professional",
+        ]
+        try:
+            opened = await page.evaluate(
+                r"""
+                (labels) => {
+                  const normalized = (text) => (text || '').replace(/\s+/g, ' ').trim();
+                  const wanted = new Set(labels.map((label) => normalized(label).toLowerCase()));
+                  const candidates = Array.from(document.querySelectorAll('button, [role="button"]'));
+                  for (const el of candidates) {
+                    if (!el || !el.isConnected || el.offsetParent === null) continue;
+                    const text = normalized(el.innerText).toLowerCase();
+                    if (!wanted.has(text)) continue;
+                    el.click();
+                    return true;
+                  }
+                  return false;
+                }
+                """,
+                labels,
+            )
+            if opened:
+                await page.wait_for_timeout(300)
+                self._log("info", "reasoning capability selector opened", {"call_id": call_id})
+                return True
+        except Exception as exc:
+            self._log("debug", "reasoning capability selector click failed", {"call_id": call_id, "error": str(exc)})
+        self._log("debug", "reasoning capability selector unavailable", {"call_id": call_id})
+        return False
+
     async def _choose_model(self, page, target_model: str, call_id: str) -> bool:
         target = self._normalize_model_text(target_model)
         if not target:
             return False
 
-        if not await self._open_model_menu(page, call_id):
+        if not await self._open_capability_menu(page, call_id) and not await self._open_model_menu(page, call_id):
             return False
 
         selectors = [

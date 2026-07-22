@@ -30,6 +30,51 @@ class ModelProfileRoutingTests(unittest.TestCase):
 
 
 class ModelCapabilitySelectionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_capability_menu_targets_current_reasoning_level_control(self):
+        adapter = ChatGPTWebAdapter(str(Path.cwd()), DEFAULT_CONFIG, logger=None)
+        observed: list[str] = []
+
+        class Page:
+            async def evaluate(self, _script, labels):
+                observed.extend(labels)
+                return True
+
+            async def wait_for_timeout(self, _milliseconds):
+                return None
+
+        self.assertTrue(await adapter._open_capability_menu(Page(), "capability-menu"))
+        self.assertIn("中", observed)
+        self.assertIn("极高", observed)
+        self.assertIn("Pro", observed)
+
+    async def test_choose_model_opens_capability_menu_before_model_menu(self):
+        adapter = ChatGPTWebAdapter(str(Path.cwd()), DEFAULT_CONFIG, logger=None)
+        calls: list[str] = []
+
+        async def capability_menu(_page, _call_id):
+            calls.append("capability")
+            return True
+
+        async def model_menu(_page, _call_id):
+            calls.append("model")
+            return True
+
+        class Locator:
+            async def count(self):
+                return 0
+
+        class Page:
+            def locator(self, _selector):
+                return Locator()
+
+            async def evaluate(self, _script, _target):
+                return False
+
+        adapter._open_capability_menu = capability_menu
+        adapter._open_model_menu = model_menu
+        self.assertFalse(await adapter._choose_model(Page(), "极高", "capability-first"))
+        self.assertEqual(calls, ["capability"])
+
     async def test_general_and_planning_try_the_correct_capability_first(self):
         adapter = ChatGPTWebAdapter(str(Path.cwd()), DEFAULT_CONFIG, logger=None)
         attempted: list[str] = []
