@@ -291,6 +291,18 @@ def build_adapter(config: dict[str, Any], workspace_root: Path, logger: logging.
         logger.info("Using GPT API adapter")
         _log_adapter_init(adapter_type="GPTAPIAdapter")
         return GPTAPIAdapter(config, logger)
+    try:
+        from playwright.async_api import async_playwright  # noqa: F401
+
+        del async_playwright
+        logger.info("Trying GPT web adapter first (default)")
+        adapter = ChatGPTWebAdapter(str(workspace_root), config, logger)
+        _log_adapter_init(adapter_type=type(adapter).__name__)
+        return adapter
+    except Exception as exc:
+        logger.warning("Web adapter init failed, fallback to api adapter: %s", exc)
+        _log_adapter_init(adapter_type="GPTAPIAdapter (fallback)")
+        return GPTAPIAdapter(config, logger)
 
 
 def _select_web_profile(config: dict[str, Any], question: str, requested_profile: str | None) -> str:
@@ -306,18 +318,6 @@ def _select_web_profile(config: dict[str, Any], question: str, requested_profile
     if any(str(keyword).casefold() in normalized_question for keyword in keywords if str(keyword).strip()):
         return planning_profile
     return default_profile
-    try:
-        from playwright.async_api import async_playwright  # noqa: F401
-
-        del async_playwright
-        logger.info("Trying GPT web adapter first (default)")
-        adapter = ChatGPTWebAdapter(str(workspace_root), config, logger)
-        _log_adapter_init(adapter_type=type(adapter).__name__)
-        return adapter
-    except Exception as exc:
-        logger.warning("Web adapter init failed, fallback to api adapter: %s", exc)
-        _log_adapter_init(adapter_type="GPTAPIAdapter (fallback)")
-        return GPTAPIAdapter(config, logger)
 
 
 def create_server(config_path: str | Path = DEFAULT_CONFIG_PATH, verbose: bool = False) -> FastMCP:

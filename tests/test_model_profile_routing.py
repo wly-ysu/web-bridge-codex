@@ -1,12 +1,17 @@
 import asyncio
+import logging
 import unittest
 from pathlib import Path
 
 from adapters.chatgpt_web import ChatGPTWebAdapter
-from server import DEFAULT_CONFIG, _select_web_profile
+from server import DEFAULT_CONFIG, _select_web_profile, build_adapter
 
 
 class ModelProfileRoutingTests(unittest.TestCase):
+    def test_default_server_adapter_is_web_adapter(self):
+        adapter = build_adapter(DEFAULT_CONFIG, Path.cwd(), logger=logging.getLogger(__name__))
+        self.assertIsInstance(adapter, ChatGPTWebAdapter)
+
     def test_ordinary_question_uses_general_profile(self):
         self.assertEqual(_select_web_profile(DEFAULT_CONFIG, "解释这个报错", None), "general")
 
