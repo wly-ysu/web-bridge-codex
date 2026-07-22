@@ -78,6 +78,9 @@ try {
 
     Write-BridgeConfig -SourceDir $paths.App -ChromePath $chrome
     $launcher = Join-Path $paths.App "web-bridge-codex.exe"
+    if (Test-Path -LiteralPath $paths.ConfigFile) { Backup-BridgeFile $paths.ConfigFile | Out-Null }
+    & $launcher --migrate-managed-config --config $paths.ConfigFile
+    if ($LASTEXITCODE -ne 0) { throw "Bridge managed config policy migration failed; Codex was not changed." }
     & $launcher --validate-config --config $paths.ConfigFile
     if ($LASTEXITCODE -ne 0) {
         Write-Host "CONFIG_REBUILT: existing bridge config failed validation; rebuilding from the current template."

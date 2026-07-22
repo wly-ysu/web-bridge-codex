@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import copy
 import io
 import logging
 import os
@@ -249,6 +250,44 @@ def load_config(path: str | Path) -> dict[str, Any]:
         else:
             config[key] = value
     return config
+
+
+def migrate_managed_config_policy(path: str | Path) -> bool:
+    """Upgrade bridge-owned routing policy while preserving user-owned settings.
+
+    The installer keeps an existing config to protect the dedicated Chrome
+    profile and local preferences. This migration updates only the two policy
+    sections whose semantics are owned by the bridge release.
+    """
+    config_path = _resolve_config_path(path)
+    loaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    if not isinstance(loaded, dict):
+        raise RuntimeError(f"CONFIG_INVALID: config root must be a mapping: {config_path}")
+
+    before = copy.deepcopy(loaded)
+    managed_lead = copy.deepcopy(DEFAULT_CONFIG["web_lead"])
+    loaded["web_lead"] = {
+        **(loaded.get("web_lead") if isinstance(loaded.get("web_lead"), dict) else {}),
+        **managed_lead,
+    }
+
+    web_adapter = loaded.setdefault("web_adapter", {})
+    if not isinstance(web_adapter, dict):
+        raise RuntimeError(f"CONFIG_INVALID: web_adapter must be a mapping: {config_path}")
+    current_strategy = web_adapter.get("model_strategy")
+    managed_strategy = copy.deepcopy(DEFAULT_CONFIG["web_adapter"]["model_strategy"])
+    web_adapter["model_strategy"] = {
+        **(current_strategy if isinstance(current_strategy, dict) else {}),
+        **managed_strategy,
+    }
+
+    if loaded == before:
+        return False
+    config_path.write_text(
+        yaml.safe_dump(loaded, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+    return True
 
 
 def validate_install_config(path: str | Path) -> Path:
@@ -1083,6 +1122,7 @@ def main() -> None:
     parser.add_argument("--launcher", default="", help="Compiled bridge executable path for Codex setup.")
     parser.add_argument("--log-path", default="", help="External bridge log path for Codex setup.")
     parser.add_argument("--validate-config", action="store_true", help="Validate an installer-managed config and exit.")
+    parser.add_argument("--migrate-managed-config", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--browser-broker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--shutdown-broker", action="store_true", help="Gracefully stop the user browser broker.")
     parser.add_argument("--broker-self-test", action="store_true", help="Run the cross-process broker self-test.")
@@ -1128,6 +1168,11 @@ def main() -> None:
     if args.validate_config:
         validated = validate_install_config(args.config)
         print(f"CONFIG_VALIDATED\nconfig_path={validated}")
+        return
+
+    if args.migrate_managed_config:
+        changed = migrate_managed_config_policy(args.config)
+        print(f"CONFIG_POLICY_MIGRATED\nchanged={str(changed).lower()}")
         return
 
     if args.configure_user or args.remove_user_config:
