@@ -69,13 +69,31 @@ class ChatGPTWebAdapter:
     def last_stage_name(self) -> str:
         return self.last_stage
 
-    def _get_model_strategy(self) -> dict:
+    def _get_model_strategy(self, profile: str | None = None) -> dict:
         strategy = self.cfg.get("model_strategy", {})
         if not isinstance(strategy, dict):
             strategy = {}
+        requested_profile = str(profile or "general").strip() or "general"
+        aliases = strategy.get("profile_aliases", {})
+        if not isinstance(aliases, dict):
+            aliases = {}
+        resolved_profile = str(aliases.get(requested_profile, requested_profile))
+        profiles = strategy.get("profiles", {})
+        if not isinstance(profiles, dict):
+            profiles = {}
+        profile_strategy = profiles.get(resolved_profile, {})
+        if not isinstance(profile_strategy, dict):
+            profile_strategy = {}
+        if not profile_strategy and resolved_profile != "general":
+            resolved_profile = "general"
+            profile_strategy = profiles.get(resolved_profile, {})
+            if not isinstance(profile_strategy, dict):
+                profile_strategy = {}
         return {
             "mode": str(strategy.get("mode", "best_available")).lower(),
-            "capability_order": list(strategy.get("capability_order", [])),
+            "capability_order": list(profile_strategy.get("capability_order", strategy.get("capability_order", []))),
+            "requested_profile": requested_profile,
+            "resolved_profile": resolved_profile,
             # Legacy named candidates are accepted but never used as a routing key.
             "preferred_models": list(strategy.get("preferred_models", [])),
             "fallback_to_current_model": bool(strategy.get("fallback_to_current_model", True)),
@@ -1165,7 +1183,7 @@ if ($null -eq $procs) { "[]" } else { $procs }
                     recovery_attempt=recovery_attempt,
                 )
 
-    async def _query_inner(self, prompt: str, base_url: str, prompt_timeout_ms: int, call_id: str, preflight: dict[str, object]) -> tuple[str, str | None]:
+    async def _query_inner(self, prompt: str, base_url: str, prompt_timeout_ms: int, call_id: str, preflight: dict[str, object], profile: str | None = None) -> tuple[str, str | None]:
         browser = None
         page = None
         observer_installed = False
@@ -1197,7 +1215,7 @@ if ($null -eq $procs) { "[]" } else { $procs }
                 ), None
 
             self._set_stage("web.model_selection.start", call_id=call_id)
-            selected_model = await self._apply_model_policy(page, call_id)
+            selected_model = await self._apply_model_policy(page, call_id, profile=profile)
             self._log("info", "Selected / current model", {"call_id": call_id, "model": selected_model})
             self._set_stage("web.model_selection.done", call_id=call_id, model=selected_model)
 
@@ -1342,6 +1360,7 @@ if ($null -eq $procs) { "[]" } else { $procs }
         project_root: str | None = None,
         conversation_mode: str = "reuse_or_create",
         request_origin: str = "interactive",
+        profile: str | None = None,
     ) -> str:
         try:
             contract = normalize_request_contract(conversation_mode, request_origin)
@@ -1353,7 +1372,7 @@ if ($null -eq $procs) { "[]" } else { $procs }
         request_origin = contract.request_origin
         if self._broker_client is not None:
             self._set_stage("web.broker.forward.start", project_key=project_key(project_root or self.workspace))
-            result = await self._broker_client.query(prompt, project_root, conversation_mode, request_origin)
+            result = await self._broker_client.query(prompt, project_root, conversation_mode, request_origin, profile)
             self._set_stage(
                 "web.broker.forward.done" if not result.startswith("[WEB_ERROR]") else "web.broker.forward.error",
                 project_key=project_key(project_root or self.workspace),
@@ -1419,11 +1438,11 @@ if ($null -eq $procs) { "[]" } else { $procs }
                     self._set_stage("web.profile_queue.wait", call_id=call_id, project_key=key)
                     async with self._request_lock:
                         self._set_stage("web.profile_queue.enter", call_id=call_id, project_key=key)
-                        result, observed_url = await self._query_inner(prompt, base_url, prompt_timeout_ms, call_id, preflight)
+                        result, observed_url = await self._query_inner(prompt, base_url, prompt_timeout_ms, call_id, preflight, profile)
                         if result.startswith("[WEB_ERROR]") and session and "stage=conversation.open" in result and bool(self.conversation_cfg.get("recover_once_on_definitive_invalid", True)):
                             self.project_sessions.mark_invalid(key)
                             self._set_stage("web.conversation.recover", call_id=call_id, project_key=key)
-                            result, observed_url = await self._query_inner(prompt, self.cfg.get("base_url", "https://chatgpt.com"), prompt_timeout_ms, call_id, preflight)
+                            result, observed_url = await self._query_inner(prompt, self.cfg.get("base_url", "https://chatgpt.com"), prompt_timeout_ms, call_id, preflight, profile)
                         if not result.startswith("[WEB_ERROR]") and observed_url:
                             saved = self.project_sessions.put(project_root or self.workspace, observed_url, prior=session)
                             self._set_stage("web.conversation.saved", call_id=call_id, project_key=saved.project_key, generation=saved.generation)
@@ -1432,7 +1451,7 @@ if ($null -eq $procs) { "[]" } else { $procs }
             self._set_stage("web.profile_queue.wait", call_id=call_id, project_key="<none>")
             async with self._request_lock:
                 self._set_stage("web.profile_queue.enter", call_id=call_id, project_key="<none>")
-                result, _ = await self._query_inner(prompt, base_url, prompt_timeout_ms, call_id, preflight)
+                result, _ = await self._query_inner(prompt, base_url, prompt_timeout_ms, call_id, preflight, profile)
                 self._set_stage("web.profile_queue.leave", call_id=call_id, project_key="<none>")
             return result
         except Exception as exc:
@@ -2893,12 +2912,12 @@ if ($null -eq $procs) { "[]" } else { $procs }
             self._log("debug", "fallback model selection failed", {"call_id": call_id, "model": target_model, "error": str(exc)})
             return False
 
-    async def _apply_model_policy(self, page, call_id: str) -> str:
-        strategy = self._get_model_strategy()
+    async def _apply_model_policy(self, page, call_id: str, profile: str | None = None) -> str:
+        strategy = self._get_model_strategy(profile)
         mode = strategy.get("mode", "best_available")
 
-        self._log("info", "Model strategy", {"call_id": call_id, "mode": mode})
-        self._set_stage("web.model_selection.start", call_id=call_id, mode=mode)
+        self._log("info", "Model strategy", {"call_id": call_id, "mode": mode, "requested_profile": strategy["requested_profile"], "resolved_profile": strategy["resolved_profile"]})
+        self._set_stage("web.model_selection.start", call_id=call_id, mode=mode, profile=strategy["resolved_profile"])
 
         preferred_models = strategy.get("preferred_models", [])
         if preferred_models:

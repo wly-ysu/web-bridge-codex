@@ -51,7 +51,7 @@ class AdapterConversationTests(unittest.IsolatedAsyncioTestCase):
             release_first = asyncio.Event()
             observed_prompts = []
 
-            async def fake_query_inner(prompt, target, timeout, call_id, preflight):
+            async def fake_query_inner(prompt, target, timeout, call_id, preflight, profile=None):
                 observed_prompts.append(prompt)
                 if prompt == "first":
                     first_started.set()
@@ -114,7 +114,7 @@ class AdapterConversationTests(unittest.IsolatedAsyncioTestCase):
             observed_targets = []
             adapter.run_chrome_preflight = lambda: {"profile_in_use": False, "executable_exists": True, "user_data_dir_writable": True}
 
-            async def fake_query_inner(prompt, target, timeout, call_id, preflight):
+            async def fake_query_inner(prompt, target, timeout, call_id, preflight, profile=None):
                 observed_targets.append(target)
                 return "OK", "https://chatgpt.com/c/project-conversation"
 

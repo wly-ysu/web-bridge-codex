@@ -30,10 +30,14 @@ workflow:
 web_lead:
   default_tool: route_to_web_lead
   fallback_tool: ask_web_architect
-  default_profile: balanced
-  vague_requirement_profile: balanced
-  complex_requirement_profile: deep_lite
-  strongest_profile: deep
+  # Ordinary questions use the current Web model at the "极高" capability.
+  default_profile: general
+  # Planning, architecture and implementation design prefer "Pro".
+  planning_profile: planning
+  vague_requirement_profile: planning
+  complex_requirement_profile: planning
+  strongest_profile: planning
+  planning_keywords: ["方案", "设计", "规划", "架构", "需求", "实施", "计划", "review", "审查", "design", "plan", "architecture", "requirement", "roadmap", "implementation"]
 
 routing:
   default_non_execution_route: "web"
@@ -100,18 +104,42 @@ web_adapter:
   headless: false
   timeout_ms: 120000
   model_strategy:
-    # Prefer the strongest capability currently available in ChatGPT Web.
-    # If its quota is exhausted or the option is unavailable, try the next tier.
-    # These are capability labels, not fixed model-version names.
+    # Follow the current ChatGPT Web model; choose only its reasoning capability.
+    # No model-version name is hard-coded. Unavailable capabilities fall back safely.
     mode: "best_available"
     capability_order:
       - ["professional", "pro", "专业"]
-      - ["very high", "extra high", "超高"]
+      - ["very high", "extra high", "极高", "超高"]
       - ["high", "高级"]
       - ["balanced", "均衡"]
       - ["fast", "极速"]
     fallback_to_current_model: true
-  fail_if_preferred_unavailable: false
+    fail_if_preferred_unavailable: false
+    profile_aliases:
+      fast: general
+      balanced: general
+      deep_lite: planning
+      deep: planning
+      review: planning
+      critical_review: planning
+      debug: planning
+      deep_debug: planning
+    profiles:
+      general:
+        # General Q&A: latest current Web model, "极高" first.
+        capability_order:
+          - ["极高", "very high", "extra high", "超高"]
+          - ["high", "高级"]
+          - ["balanced", "均衡"]
+          - ["fast", "极速"]
+      planning:
+        # Architecture/design/task planning: "Pro" first, then "极高".
+        capability_order:
+          - ["Pro", "professional", "pro", "专业"]
+          - ["极高", "very high", "extra high", "超高"]
+          - ["high", "高级"]
+          - ["balanced", "均衡"]
+          - ["fast", "极速"]
 
 browser_broker:
   enabled: true
@@ -119,31 +147,6 @@ browser_broker:
   request_timeout_seconds: 660
   idle_timeout_seconds: 1800
   state_dir: ""
-  profiles:
-    fast:
-      description: "Simple questions and concise, low-latency responses"
-      thinking_level: "fast"
-    balanced:
-      description: "Default Tech Lead analysis for normal architecture and under-30min problems"
-      thinking_level: "auto"
-    deep_lite:
-      description: "Complex analysis with deeper reasoning and moderate latency"
-      thinking_level: "deep"
-    deep:
-      description: "Strategic or high-risk work; request the strongest current Web reasoning"
-      thinking_level: "deep"
-    review:
-      description: "Normal code review with balanced reasoning"
-      thinking_level: "balanced"
-    critical_review:
-      description: "Critical code review; request the strongest current Web reasoning"
-      thinking_level: "deep"
-    debug:
-      description: "Normal debugging with balanced reasoning"
-      thinking_level: "balanced"
-    deep_debug:
-      description: "Complex root-cause analysis; request the strongest current Web reasoning"
-      thinking_level: "deep"
   input_selectors:
     - "#prompt-textarea"
     - "textarea[data-testid='composer-tray-text-input']"

@@ -87,10 +87,15 @@ DEFAULT_CONFIG = {
     "web_lead": {
         "default_tool": "route_to_web_lead",
         "fallback_tool": "ask_web_architect",
-        "default_profile": "balanced",
-        "vague_requirement_profile": "balanced",
-        "complex_requirement_profile": "deep_lite",
-        "strongest_profile": "deep",
+        "default_profile": "general",
+        "planning_profile": "planning",
+        "vague_requirement_profile": "planning",
+        "complex_requirement_profile": "planning",
+        "strongest_profile": "planning",
+        "planning_keywords": [
+            "方案", "设计", "规划", "架构", "需求", "实施", "计划", "review", "审查",
+            "design", "plan", "architecture", "requirement", "roadmap", "implementation",
+        ],
     },
     "context": {
         "enabled": True,
@@ -122,11 +127,40 @@ DEFAULT_CONFIG = {
             "mode": "best_available",
             "capability_order": [
                 ["professional", "pro", "专业"],
-                ["very high", "extra high", "超高"],
+                ["very high", "extra high", "极高", "超高"],
                 ["high", "高级"],
                 ["balanced", "均衡"],
                 ["fast", "极速"],
             ],
+            "profile_aliases": {
+                "fast": "general",
+                "balanced": "general",
+                "deep_lite": "planning",
+                "deep": "planning",
+                "review": "planning",
+                "critical_review": "planning",
+                "debug": "planning",
+                "deep_debug": "planning",
+            },
+            "profiles": {
+                "general": {
+                    "capability_order": [
+                        ["极高", "very high", "extra high", "超高"],
+                        ["high", "高级"],
+                        ["balanced", "均衡"],
+                        ["fast", "极速"],
+                    ],
+                },
+                "planning": {
+                    "capability_order": [
+                        ["Pro", "professional", "pro", "专业"],
+                        ["极高", "very high", "extra high", "超高"],
+                        ["high", "高级"],
+                        ["balanced", "均衡"],
+                        ["fast", "极速"],
+                    ],
+                },
+            },
             "fallback_to_current_model": True,
             "fail_if_preferred_unavailable": False,
         },
@@ -257,6 +291,21 @@ def build_adapter(config: dict[str, Any], workspace_root: Path, logger: logging.
         logger.info("Using GPT API adapter")
         _log_adapter_init(adapter_type="GPTAPIAdapter")
         return GPTAPIAdapter(config, logger)
+
+
+def _select_web_profile(config: dict[str, Any], question: str, requested_profile: str | None) -> str:
+    """Choose a capability profile without coupling the bridge to a model version."""
+    if requested_profile and requested_profile.strip():
+        return requested_profile.strip()
+
+    lead_cfg = config.get("web_lead", {})
+    default_profile = str(lead_cfg.get("default_profile", "general"))
+    planning_profile = str(lead_cfg.get("planning_profile", "planning"))
+    keywords = lead_cfg.get("planning_keywords", [])
+    normalized_question = question.casefold()
+    if any(str(keyword).casefold() in normalized_question for keyword in keywords if str(keyword).strip()):
+        return planning_profile
+    return default_profile
     try:
         from playwright.async_api import async_playwright  # noqa: F401
 
@@ -446,7 +495,7 @@ is unavailable.
         """
         Ask Web Lead to refine a vague request and produce Codex execution steps.
         """
-        selected_profile = profile or str(config.get("web_lead", {}).get("default_profile", "balanced"))
+        selected_profile = _select_web_profile(config, message, profile)
         selected_mode = mode or str(config.get("workflow", {}).get("mode", "web_first"))
         _log_stage(
             "mcp.route_to_web_lead.enter",
@@ -477,6 +526,7 @@ is unavailable.
                     routed_message,
                     context_hints=None,
                     include_workspace_context=False,
+                    profile=selected_profile,
                     conversation_mode=conversation_mode,
                     request_origin=request_origin,
                 ),
@@ -503,7 +553,7 @@ is unavailable.
         conversation_mode: str = "reuse_or_create",
         request_origin: str = "interactive",
     ) -> str:
-        selected_profile = profile or str(config.get("web_lead", {}).get("default_profile", "balanced"))
+        selected_profile = _select_web_profile(config, question, profile)
         _log_stage(
             f"mcp.{tool_name}.enter",
             {
@@ -527,6 +577,7 @@ is unavailable.
                     question,
                     context_hints=context_hints or None,
                     include_workspace_context=include_workspace_context,
+                    profile=selected_profile,
                     conversation_mode=conversation_mode,
                     request_origin=request_origin,
                 ),
@@ -879,8 +930,9 @@ class _BrokerSelfTestAdapter:
         project_root: str | None = None,
         conversation_mode: str = "reuse_or_create",
         request_origin: str = "",
+        profile: str | None = None,
     ) -> str:
-        del project_root, conversation_mode, request_origin
+        del project_root, conversation_mode, request_origin, profile
         self.active += 1
         self.max_concurrency = max(self.max_concurrency, self.active)
         try:

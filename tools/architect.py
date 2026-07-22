@@ -37,6 +37,7 @@ class ArchitectAgent:
         question: str,
         context_hints: list[str] | None = None,
         include_workspace_context: bool = False,
+        profile: str | None = None,
         conversation_mode: str = "reuse_or_create",
         request_origin: str = "interactive",
     ) -> str:
@@ -63,6 +64,7 @@ class ArchitectAgent:
         answer = await self.adapter.query(
             prompt,
             project_root=str(self.context_manager.root),
+            profile=profile,
             conversation_mode=conversation_mode,
             request_origin=request_origin,
         )

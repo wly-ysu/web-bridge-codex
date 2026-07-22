@@ -141,7 +141,7 @@ class BrowserContextRecoveryTests(unittest.IsolatedAsyncioTestCase):
             captured: dict[str, str] = {}
 
             class FakeBroker:
-                async def query(self, _prompt, _project_root, conversation_mode, request_origin):
+                async def query(self, _prompt, _project_root, conversation_mode, request_origin, profile=None):
                     captured["conversation_mode"] = conversation_mode
                     captured["request_origin"] = request_origin
                     return "BROKER_OK"
