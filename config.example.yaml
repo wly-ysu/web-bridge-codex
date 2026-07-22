@@ -127,6 +127,8 @@ web_adapter:
     profiles:
       general:
         # General Q&A: latest current Web model, "极高" first.
+        required_capability: very_high
+        fallback_capabilities: []
         capability_order:
           - ["极高", "very high", "extra high", "超高"]
           - ["high", "高级"]
@@ -134,6 +136,8 @@ web_adapter:
           - ["fast", "极速"]
       planning:
         # Architecture/design/task planning: "Pro" first, then "极高".
+        required_capability: pro
+        fallback_capabilities: [very_high]
         capability_order:
           - ["Pro", "professional", "pro", "专业"]
           - ["极高", "very high", "extra high", "超高"]

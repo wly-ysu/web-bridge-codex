@@ -94,6 +94,8 @@ class ChatGPTWebAdapter:
             "capability_order": list(profile_strategy.get("capability_order", strategy.get("capability_order", []))),
             "requested_profile": requested_profile,
             "resolved_profile": resolved_profile,
+            "required_capability": str(profile_strategy.get("required_capability", "")).strip(),
+            "fallback_capabilities": [str(item).strip() for item in profile_strategy.get("fallback_capabilities", []) if str(item).strip()],
             # Legacy named candidates are accepted but never used as a routing key.
             "preferred_models": list(strategy.get("preferred_models", [])),
             "fallback_to_current_model": bool(strategy.get("fallback_to_current_model", True)),
@@ -1215,9 +1217,11 @@ if ($null -eq $procs) { "[]" } else { $procs }
                 ), None
 
             self._set_stage("web.model_selection.start", call_id=call_id)
-            selected_model = await self._apply_model_policy(page, call_id, profile=profile)
-            self._log("info", "Selected / current model", {"call_id": call_id, "model": selected_model})
-            self._set_stage("web.model_selection.done", call_id=call_id, model=selected_model)
+            selected_capability, selection_error = await self._apply_model_policy(page, call_id, profile=profile)
+            if selection_error:
+                return selection_error, None
+            self._log("info", "Selected / current reasoning capability", {"call_id": call_id, "capability": selected_capability})
+            self._set_stage("web.model_selection.done", call_id=call_id, capability=selected_capability)
 
             input_selectors = self._merge_selectors(
                 list(self.cfg.get("input_selectors", [])),
@@ -2868,32 +2872,86 @@ if ($null -eq $procs) { "[]" } else { $procs }
             "智能", "极速", "中", "高", "极高", "Pro",
             "Intelligent", "Fast", "Medium", "High", "Very High", "Professional",
         ]
+        for label in labels:
+            try:
+                locator = page.get_by_role("button", name=label, exact=True)
+                if await locator.count() == 0:
+                    continue
+                await locator.first.click(timeout=1200)
+                await page.wait_for_timeout(300)
+                self._log("info", "reasoning capability selector opened", {"call_id": call_id, "label": label})
+                return True
+            except Exception as exc:
+                self._log("debug", "reasoning capability selector click failed", {"call_id": call_id, "label": label, "error": str(exc)})
+        self._log("debug", "reasoning capability selector unavailable", {"call_id": call_id})
+        return False
+
+    @staticmethod
+    def _capability_aliases() -> dict[str, tuple[str, ...]]:
+        return {
+            "very_high": ("极高", "very high", "extra high", "超高"),
+            "pro": ("Pro", "professional", "专业"),
+            "high": ("高", "high", "高级"),
+            "medium": ("中", "medium", "balanced", "均衡"),
+            "fast": ("极速", "fast"),
+            "intelligent": ("智能", "intelligent"),
+        }
+
+    async def _read_current_capability(self, page, call_id: str) -> str | None:
+        aliases = {
+            self._normalize_model_text(label): capability
+            for capability, labels in self._capability_aliases().items()
+            for label in labels
+        }
         try:
-            opened = await page.evaluate(
+            observed = await page.evaluate(
                 r"""
-                (labels) => {
-                  const normalized = (text) => (text || '').replace(/\s+/g, ' ').trim();
-                  const wanted = new Set(labels.map((label) => normalized(label).toLowerCase()));
-                  const candidates = Array.from(document.querySelectorAll('button, [role="button"]'));
+                (aliases) => {
+                  const normalized = (text) => (text || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                  const candidates = Array.from(document.querySelectorAll('button, [role="button"], [role="menuitemradio"]'));
+                  const capability = (el) => aliases[normalized(el.innerText)] || null;
                   for (const el of candidates) {
                     if (!el || !el.isConnected || el.offsetParent === null) continue;
-                    const text = normalized(el.innerText).toLowerCase();
-                    if (!wanted.has(text)) continue;
-                    el.click();
-                    return true;
+                    const value = capability(el);
+                    if (!value) continue;
+                    if (el.getAttribute('aria-pressed') === 'true' || el.getAttribute('aria-current') === 'true'
+                        || el.getAttribute('aria-checked') === 'true' || el.getAttribute('data-state') === 'on'
+                        || el.getAttribute('data-state') === 'checked' || el.getAttribute('data-selected') === 'true') return value;
                   }
-                  return false;
+                  // With the menu closed, the compact exact-label control is the current level.
+                  for (const el of candidates) {
+                    if (!el || !el.isConnected || el.offsetParent === null) continue;
+                    const value = capability(el);
+                    if (value) return value;
+                  }
+                  return null;
                 }
                 """,
-                labels,
+                aliases,
             )
-            if opened:
-                await page.wait_for_timeout(300)
-                self._log("info", "reasoning capability selector opened", {"call_id": call_id})
-                return True
+            if isinstance(observed, str) and observed:
+                self._log("info", "reasoning capability observed", {"call_id": call_id, "capability": observed})
+                return observed
         except Exception as exc:
-            self._log("debug", "reasoning capability selector click failed", {"call_id": call_id, "error": str(exc)})
-        self._log("debug", "reasoning capability selector unavailable", {"call_id": call_id})
+            self._log("debug", "reasoning capability read failed", {"call_id": call_id, "error": str(exc)})
+        self._log("warning", "reasoning capability unknown", {"call_id": call_id})
+        return None
+
+    async def _select_capability(self, page, capability: str, call_id: str) -> bool:
+        labels = self._capability_aliases().get(capability, ())
+        if not labels or not await self._open_capability_menu(page, call_id):
+            return False
+        for label in labels:
+            try:
+                locator = page.get_by_role("menuitemradio", name=label, exact=True)
+                if await locator.count() == 0:
+                    continue
+                await locator.first.click(timeout=1200)
+                await page.wait_for_timeout(450)
+                self._log("info", "reasoning capability option clicked", {"call_id": call_id, "capability": capability, "label": label})
+                return True
+            except Exception as exc:
+                self._log("debug", "reasoning capability click failed", {"call_id": call_id, "capability": capability, "label": label, "error": str(exc)})
         return False
 
     async def _choose_model(self, page, target_model: str, call_id: str) -> bool:
@@ -2952,39 +3010,48 @@ if ($null -eq $procs) { "[]" } else { $procs }
             self._log("debug", "fallback model selection failed", {"call_id": call_id, "model": target_model, "error": str(exc)})
             return False
 
-    async def _apply_model_policy(self, page, call_id: str, profile: str | None = None) -> str:
+    async def _apply_model_policy(self, page, call_id: str, profile: str | None = None) -> tuple[str | None, str | None]:
+        """Select and verify a request-scoped capability before prompt submission."""
         strategy = self._get_model_strategy(profile)
-        mode = strategy.get("mode", "best_available")
+        required = strategy.get("required_capability") or (
+            "pro" if strategy.get("resolved_profile") == "planning" else "very_high"
+        )
+        candidates = [required, *strategy.get("fallback_capabilities", [])]
+        self._log(
+            "info",
+            "reasoning capability policy",
+            {
+                "call_id": call_id,
+                "requested_profile": strategy["requested_profile"],
+                "resolved_profile": strategy["resolved_profile"],
+                "required_capability": required,
+            },
+        )
+        self._set_stage("web.capability.selection.start", call_id=call_id, required=required)
+        current = await self._read_current_capability(page, call_id)
+        for index, candidate in enumerate(candidates):
+            if candidate not in self._capability_aliases():
+                continue
+            if current != candidate:
+                if not await self._select_capability(page, candidate, call_id):
+                    self._log("warning", "reasoning capability option unavailable", {"call_id": call_id, "capability": candidate})
+                    continue
+            observed = await self._read_current_capability(page, call_id)
+            if observed == candidate:
+                fallback_used = index > 0
+                self._log("info", "reasoning capability verified", {"call_id": call_id, "capability": candidate, "fallback_used": fallback_used})
+                self._set_stage("web.capability.verified", call_id=call_id, capability=candidate, fallback_used=fallback_used)
+                return candidate, None
+            self._log("warning", "reasoning capability readback mismatch", {"call_id": call_id, "target": candidate, "observed": observed or "unknown"})
+            current = observed
 
-        self._log("info", "Model strategy", {"call_id": call_id, "mode": mode, "requested_profile": strategy["requested_profile"], "resolved_profile": strategy["resolved_profile"]})
-        self._set_stage("web.model_selection.start", call_id=call_id, mode=mode, profile=strategy["resolved_profile"])
-
-        preferred_models = strategy.get("preferred_models", [])
-        if preferred_models:
-            self._log(
-                "warning",
-                "legacy named model candidates ignored; retaining current ChatGPT Web model",
-                {"call_id": call_id},
-            )
-        current_model = await self._read_current_model_text(page, call_id)
-        if current_model is None:
-            self._log("warning", "Unable to detect current model, continue with current ChatGPT web selection", {"call_id": call_id})
-            current_model = "unknown"
-
-        if mode == "best_available":
-            for tier in strategy.get("capability_order", []):
-                labels = [str(label).strip() for label in tier] if isinstance(tier, list) else [str(tier).strip()]
-                for label in labels:
-                    if not label:
-                        continue
-                    self._log("info", "try select model capability", {"call_id": call_id, "capability": label})
-                    if await self._choose_model(page, label, call_id):
-                        observed = await self._read_current_model_text(page, call_id) or label
-                        self._log("info", "selected highest available model capability", {"call_id": call_id, "capability": label, "observed_model": observed})
-                        self._set_stage("web.model_selection.done", call_id=call_id, model=observed)
-                        return observed
-            self._log("warning", "no preferred capability available; retaining current ChatGPT Web model", {"call_id": call_id})
-
-        self._log("info", "model switch not requested", {"call_id": call_id, "model_policy": mode})
-        self._set_stage("web.model_selection.done", call_id=call_id, model=current_model)
-        return current_model
+        self._set_stage("web.capability.selection_failed", call_id=call_id, required=required)
+        return None, self._raise_web_error(
+            "capability.selection",
+            "required_capability_unconfirmed",
+            {
+                "required_capability": required,
+                "observed_capability": current or "unknown",
+                "web_prompt_sent": False,
+            },
+        )

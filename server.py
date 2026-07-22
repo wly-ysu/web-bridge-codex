@@ -145,6 +145,8 @@ DEFAULT_CONFIG = {
             },
             "profiles": {
                 "general": {
+                    "required_capability": "very_high",
+                    "fallback_capabilities": [],
                     "capability_order": [
                         ["极高", "very high", "extra high", "超高"],
                         ["high", "高级"],
@@ -153,6 +155,8 @@ DEFAULT_CONFIG = {
                     ],
                 },
                 "planning": {
+                    "required_capability": "pro",
+                    "fallback_capabilities": ["very_high"],
                     "capability_order": [
                         ["Pro", "professional", "pro", "专业"],
                         ["极高", "very high", "extra high", "超高"],
