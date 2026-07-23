@@ -28,6 +28,34 @@ class RequestContractTests(unittest.TestCase):
         self.assertEqual("automation", contract.request_origin)
         self.assertTrue(contract.legacy_mode_normalized)
 
+    def test_legacy_planning_mode_normalizes_to_reuse_or_create(self) -> None:
+        contract = normalize_request_contract(
+            conversation_mode="planning",
+            request_origin="interactive",
+        )
+
+        self.assertEqual("reuse_or_create", contract.conversation_mode)
+        self.assertEqual("interactive", contract.request_origin)
+        self.assertTrue(contract.legacy_mode_normalized)
+
+    def test_legacy_architect_mode_normalizes_to_reuse_or_create(self) -> None:
+        contract = normalize_request_contract(
+            conversation_mode="architect",
+            request_origin="interactive",
+        )
+
+        self.assertEqual("reuse_or_create", contract.conversation_mode)
+        self.assertEqual("interactive", contract.request_origin)
+        self.assertTrue(contract.legacy_mode_normalized)
+
+    def test_legacy_request_origin_is_normalized(self) -> None:
+        contract = normalize_request_contract(
+            conversation_mode="reuse_or_create",
+            request_origin="codex_desktop",
+        )
+
+        self.assertEqual("interactive", contract.request_origin)
+
     def test_unknown_mode_is_rejected_before_browser_or_broker_work(self) -> None:
         with self.assertRaises(RequestContractError):
             normalize_request_contract(
