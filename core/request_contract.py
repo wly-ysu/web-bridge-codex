@@ -7,7 +7,9 @@ from dataclasses import dataclass
 
 SUPPORTED_CONVERSATION_MODES = frozenset({"reuse_or_create", "new", "one_shot"})
 SUPPORTED_REQUEST_ORIGINS = frozenset({"interactive", "automation", "scheduled"})
+LEGACY_CONVERSATION_MODES = {"automation", "planning", "architect"}
 LEGACY_AUTOMATION_MODE = "automation"
+LEGACY_REQUEST_ORIGINS = {"codex_desktop"}
 
 
 class RequestContractError(ValueError):
@@ -34,14 +36,17 @@ def normalize_request_contract(
 
     mode = str(conversation_mode or "reuse_or_create").strip().lower()
     origin = str(request_origin or "interactive").strip().lower()
-    if mode == LEGACY_AUTOMATION_MODE:
+    if mode in LEGACY_CONVERSATION_MODES:
         return WebRequestContract(
             conversation_mode="reuse_or_create",
-            request_origin="automation",
+            request_origin="automation" if mode == LEGACY_AUTOMATION_MODE else request_origin.strip().lower(),
             legacy_mode_normalized=True,
         )
     if mode not in SUPPORTED_CONVERSATION_MODES:
         raise RequestContractError(f"invalid_conversation_mode:{mode}")
+    if origin in LEGACY_REQUEST_ORIGINS:
+        origin = "interactive"
+
     if origin not in SUPPORTED_REQUEST_ORIGINS:
         raise RequestContractError(f"invalid_request_origin:{origin}")
     return WebRequestContract(conversation_mode=mode, request_origin=origin)
